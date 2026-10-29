@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from . import auth, db
+from .cache import ReadCache
 from .ratelimit import RateLimiter
 
 
@@ -33,6 +34,14 @@ def create_app(db_path: str, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetch
     app.state.public_key_b64 = public_key_b64
     app.state.fetcher = fetcher
     app.state.limiter = RateLimiter()
+    app.state.cache = ReadCache()
+
+    @app.middleware("http")
+    async def _bump_on_write(request: Request, call_next):
+        response = await call_next(request)
+        if request.method != "GET" and response.status_code < 400 and request.url.path != "/session":
+            app.state.cache.bump()
+        return response
 
     @app.exception_handler(HTTPException)
     async def _error(_request, exc: HTTPException):

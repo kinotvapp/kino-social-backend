@@ -122,12 +122,17 @@ def list_comments(post_id: int, request: Request, user=Depends(current_user)):
     conn = request.app.state.db
     if conn.execute("SELECT 1 FROM posts WHERE id = ?", (post_id,)).fetchone() is None:
         raise HTTPException(404, "not_found")
-    rows = conn.execute(
-        "SELECT c.*, u.name AS author_name FROM comments c JOIN users u ON u.id = c.user_id"
-        " WHERE c.post_id = ? ORDER BY c.created_at, c.id LIMIT 200",
-        (post_id,),
-    ).fetchall()
-    return {"items": [{"id": r["id"], "user": _author(r), "text": r["text"], "createdAt": r["created_at"]} for r in rows]}
+
+    def compute():
+        rows = conn.execute(
+            "SELECT c.*, u.name AS author_name FROM comments c JOIN users u ON u.id = c.user_id"
+            " WHERE c.post_id = ? ORDER BY c.created_at, c.id LIMIT 200",
+            (post_id,),
+        ).fetchall()
+        return {"items": [{"id": r["id"], "user": _author(r), "text": r["text"], "createdAt": r["created_at"]}
+                          for r in rows]}
+
+    return request.app.state.cache.respond(request, user["id"], compute)
 
 
 @router.post("/posts/{post_id}/comments")
@@ -153,6 +158,10 @@ def delete_comment(comment_id: int, request: Request, user=Depends(current_user)
 
 @router.get("/feed")
 def feed(request: Request, before: int | None = None, limit: int = 20, user=Depends(current_user)):
+    return request.app.state.cache.respond(request, user["id"], lambda: _feed(request, user, before, limit))
+
+
+def _feed(request: Request, user, before: int | None, limit: int) -> dict:
     limit = max(1, min(limit, 50))
     cutoff = before if before is not None else 2**62
     conn = request.app.state.db
