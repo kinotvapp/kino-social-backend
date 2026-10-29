@@ -55,6 +55,8 @@ def _post_json(row) -> dict:
             link.update(title=row["preview_title"], desc=row["preview_desc"], site=row["preview_site"])
         if row["preview_media"]:
             link["image"] = row["preview_media"]
+        if row["preview_tmdb"]:
+            link["tmdb"] = {"kind": row["preview_kind"], "id": row["preview_tmdb"]}
         item["link"] = link
     return item
 
@@ -66,6 +68,10 @@ def _activity_json(row, *, with_hidden: bool = False) -> dict:
         item["season"] = row["season"]
     if row["episode"] is not None:
         item["episode"] = row["episode"]
+    if row["still"]:
+        item["still"] = row["still"]
+    if row["episode_title"]:
+        item["episodeTitle"] = row["episode_title"]
     if with_hidden:
         item["hidden"] = bool(row["hidden"])
     return item
@@ -143,12 +149,14 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
     _limit(request, user, "post")
     from . import preview
 
-    link = preview.link_for(request.app, text)
+    link = preview.link_for(request.app, text, body.get("title"))
+    tmdb = link.get("tmdb") or {}
     conn = request.app.state.db
     new_id = conn.execute(
-        "INSERT INTO posts (user_id, text, link_url, preview_title, preview_desc, preview_site, preview_media, created_at)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-        (user["id"], text, link.get("url"), link.get("title"), link.get("desc"), link.get("site"), link.get("image"), db.now_ms()),
+        "INSERT INTO posts (user_id, text, link_url, preview_title, preview_desc, preview_site, preview_media, preview_kind,"
+        " preview_tmdb, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        (user["id"], text, link.get("url"), link.get("title"), link.get("desc"), link.get("site"), link.get("image"),
+         tmdb.get("kind"), tmdb.get("id"), db.now_ms()),
     ).fetchone()["id"]
     _bump(request, "feed", "people", f"user:{user['id']}")
     return _post_json(_one_post(conn, user["id"], new_id))
@@ -362,10 +370,18 @@ def _clean_activity(item) -> tuple | None:
     poster = item.get("poster")
     if not isinstance(poster, str) or not poster.startswith(TMDB_IMAGES) or len(poster) > 300:
         poster = None
+    still = item.get("still")
+    if season is None or not isinstance(still, str) or not still.startswith(TMDB_IMAGES) or len(still) > 300:
+        still = None
+    episode_title = item.get("episodeTitle")
+    if season is None or not isinstance(episode_title, str) or not episode_title.strip() or len(episode_title) > 200:
+        episode_title = None
+    else:
+        episode_title = profanity.mask(episode_title.strip())
     watched = item.get("watchedAtMs")
     if not isinstance(watched, int) or watched <= 0:
         return None
-    return kind, tmdb, title.strip(), season, episode, poster, watched
+    return kind, tmdb, title.strip(), season, episode, poster, still, episode_title, watched
 
 
 @router.post("/activity")
@@ -382,8 +398,8 @@ def add_activity(body: dict, request: Request, user=Depends(current_user)):
         if clean is None:
             continue
         added += conn.execute(
-            "INSERT INTO activity (user_id, kind, tmdb_id, title, season, episode, poster, watched_at, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+            "INSERT INTO activity (user_id, kind, tmdb_id, title, season, episode, poster, still, episode_title, watched_at, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
             (user["id"], *clean, now + i),  # +i: a batch keeps its order in the feed
         ).rowcount
     if added:

@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS posts (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS posts_created ON posts(created_at DESC, id DESC);
+-- A TMDB or IMDb link's title as Kino knows it: the card opens it in Kino.
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS preview_kind TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS preview_tmdb BIGINT;
 CREATE INDEX IF NOT EXISTS posts_user ON posts(user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS comments (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -93,6 +96,9 @@ CREATE TABLE IF NOT EXISTS activity (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS activity_user ON activity(user_id, created_at DESC);
+-- An episode's own picture (TMDB still, 16:9) and name, when Kino knew them.
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS still TEXT;
+ALTER TABLE activity ADD COLUMN IF NOT EXISTS episode_title TEXT;
 -- COALESCE: a plain UNIQUE treats NULLs as distinct, so a movie (no season) would repeat.
 CREATE UNIQUE INDEX IF NOT EXISTS activity_once
   ON activity(user_id, kind, tmdb_id, COALESCE(season, -1), COALESCE(episode, -1));

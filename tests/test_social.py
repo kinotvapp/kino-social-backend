@@ -145,3 +145,15 @@ def test_activity_uploads_are_limited(client, login):
     a = login(1, "ana")
     codes = [_watch(client, a, tmdbId=1000 + i).status_code for i in range(31)]
     assert codes[:30] == [200] * 30 and codes[30] == 429
+
+
+def test_an_episode_carries_its_still_and_name(client, login):
+    a = login(1, "ana")
+    b = login(2, "beto")
+    client.post("/follow/2", headers=a)
+    _watch(client, b, still="https://image.tmdb.org/t/p/w300/still.jpg", episodeTitle="Capítulo 7: La masacre")
+    item = client.get("/feed", headers=a).json()["items"][0]
+    assert item["still"] == "https://image.tmdb.org/t/p/w300/still.jpg" and item["episodeTitle"] == "Capítulo 7: La masacre"
+    _watch(client, b, tmdbId=5, still="https://evil.example/x.jpg", episodeTitle="x" * 300)
+    other = [i for i in client.get("/feed", headers=a).json()["items"] if i["tmdbId"] == 5][0]
+    assert other.get("still") is None and other.get("episodeTitle") is None

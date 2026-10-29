@@ -114,3 +114,45 @@ def test_first_url():
     assert preview.first_url("hola https://a.example/x?y=1). y más") == "https://a.example/x?y=1"
     assert preview.first_url("sin enlace") is None
     assert preview.first_url("ftp://a.example") is None
+
+
+LATIN = "<html><head><meta charset=\"iso-8859-1\"><meta property=\"og:title\" content=\"Última hora en Bogotá\"></head></html>"
+
+
+@pytest.mark.parametrize("fetcher", [make_fetcher({
+    "https://news.example/": (200, {"content-type": "text/html"}, LATIN.encode("latin-1")),
+})], indirect=True)
+def test_preview_honours_the_page_charset(client, login):
+    assert post(client, login, "https://news.example/")["link"]["title"] == "Última hora en Bogotá"
+
+
+YT = "https://www.youtube.com/watch?v=U2Qp5pL3ovA"
+OEMBED = str(httpx.URL("https://www.youtube.com/oembed", params={"url": YT, "format": "json"}))
+
+
+@pytest.mark.parametrize("fetcher", [make_fetcher({
+    OEMBED: (200, {"content-type": "application/json"},
+             b'{"title": "Dune: Part Two | Official Trailer", "author_name": "Warner Bros.", "thumbnail_url": "https://i.ytimg.com/vi/x/hqdefault.jpg"}'),
+    "https://i.ytimg.com/vi/x/hqdefault.jpg": (200, {"content-type": "image/jpeg"}, b"\xff\xd8jpeg"),
+})], indirect=True)
+def test_youtube_links_use_its_oembed(client, login):
+    link = post(client, login, "Tráiler " + YT)["link"]
+    assert link["title"] == "Dune: Part Two | Official Trailer" and link["site"] == "YouTube"
+    assert link["desc"] == "Warner Bros." and link["image"].startswith("https://social.example/media/")
+
+
+@pytest.mark.parametrize("fetcher", [make_fetcher({
+    "https://image.tmdb.org/t/p/w342/dune.jpg": (200, {"content-type": "image/jpeg"}, b"\xff\xd8poster"),
+})], indirect=True)
+def test_a_tmdb_or_imdb_link_takes_the_title_kino_found(client, login):
+    hint = {"kind": "movie", "tmdbId": 693134, "title": "Dune: Parte dos", "year": 2024, "poster": "https://image.tmdb.org/t/p/w342/dune.jpg"}
+    a = login(1)
+    link = client.post("/posts", json={"text": "Brutal https://www.imdb.com/title/tt15239678/", "title": hint}, headers=a).json()["link"]
+    assert link["title"] == "Dune: Parte dos" and link["site"] == "TMDB" and link["desc"] == "2024"
+    assert link["tmdb"] == {"kind": "movie", "id": 693134} and link["image"].startswith("https://social.example/media/")
+    # Never for another site, never a poster from elsewhere.
+    other = client.post("/posts", json={"text": "https://blog.example/x", "title": hint}, headers=a).json()["link"]
+    assert "tmdb" not in other
+    bad = client.post("/posts", json={"text": "https://www.themoviedb.org/movie/693134",
+                                      "title": {**hint, "poster": "https://evil.example/p.jpg"}}, headers=a).json()["link"]
+    assert bad["tmdb"] == {"kind": "movie", "id": 693134} and "image" not in bad
