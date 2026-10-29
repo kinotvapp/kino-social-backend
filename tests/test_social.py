@@ -17,9 +17,9 @@ def test_post_and_comment_flow(client, login):
     assert client.post(f"/posts/{pid}/comments", json={"text": "Gracias"}, headers=a).status_code == 200
     comments = client.get(f"/posts/{pid}/comments", headers=b).json()["items"]
     assert [c["text"] for c in comments] == ["Buenísimo", "Gracias"]
-    assert comments[0]["user"]["name"] == "@beto"
+    assert comments[0]["user"]["name"] == "beto"
     feed = client.get("/feed", headers=b).json()["items"]
-    assert feed[0]["type"] == "post" and feed[0]["comments"] == 2 and feed[0]["user"]["name"] == "@ana"
+    assert feed[0]["type"] == "post" and feed[0]["comments"] == 2 and feed[0]["user"]["name"] == "ana"
     assert client.delete(f"/posts/{pid}", headers=b).status_code == 403
     assert client.delete(f"/posts/{pid}", headers=a).status_code == 200
     assert client.get("/feed", headers=b).json()["items"] == []

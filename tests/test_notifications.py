@@ -10,7 +10,7 @@ def test_comment_and_follow_notify_the_owner_grouped(client, login):
     body = client.get("/notifications", headers=a).json()
     assert body["unread"] == 2
     kinds = [(n["kind"], n.get("postId"), n["count"], n["actor"]["name"]) for n in body["items"]]
-    assert kinds == [("follow", None, 1, "@beto"), ("comment", pid, 2, "@caro")]
+    assert kinds == [("follow", None, 1, "beto"), ("comment", pid, 2, "caro")]
     assert client.get("/notifications", headers=b).json()["items"] == []
 
 

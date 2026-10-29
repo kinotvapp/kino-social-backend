@@ -1,92 +1,202 @@
-"""SQLite storage. Every time is epoch milliseconds."""
-import sqlite3
+"""PostgreSQL storage through a small connection pool. Every time is epoch milliseconds (BIGINT).
+
+SQL in this app is written with `?` placeholders (converted to psycopg's `%s` here); each `execute` borrows a pooled
+connection in autocommit, and `transaction()` groups the few writes that must land together.
+"""
 import time
+from contextlib import contextmanager
+
+from psycopg_pool import ConnectionPool
 
 SCHEMA = """
+-- `id` is this server's own public number; `user_key` is HMAC(secret, telegram id): the Telegram id is never stored.
 CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY,
-  username TEXT,
-  name TEXT,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  name_folded TEXT NOT NULL DEFAULT '',
+  handle TEXT UNIQUE,
   bio TEXT NOT NULL DEFAULT '',
-  share_activity INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER
+  share_activity BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at BIGINT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sessions (
   key TEXT PRIMARY KEY,
-  user_id INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+-- Each install's P-256 key, bound to the gate token's device hash the first time that device logs in.
+CREATE TABLE IF NOT EXISTS devices (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_hash TEXT NOT NULL,
+  device_key TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, device_hash)
+);
+CREATE TABLE IF NOT EXISTS challenges (
+  challenge TEXT PRIMARY KEY,
+  expires_at BIGINT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS posts (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
   link_url TEXT,
   preview_title TEXT,
   preview_desc TEXT,
   preview_site TEXT,
   preview_media TEXT,
-  created_at INTEGER NOT NULL
+  comment_count INTEGER NOT NULL DEFAULT 0,
+  like_count INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS posts_created ON posts(created_at);
+CREATE INDEX IF NOT EXISTS posts_created ON posts(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS posts_user ON posts(user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS comments (
-  id INTEGER PRIMARY KEY,
-  post_id INTEGER NOT NULL,
-  user_id INTEGER NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS comments_post ON comments(post_id);
+CREATE INDEX IF NOT EXISTS comments_post ON comments(post_id, created_at, id);
+CREATE TABLE IF NOT EXISTS likes (
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (post_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS likes_user ON likes(user_id);
 CREATE TABLE IF NOT EXISTS follows (
-  follower_id INTEGER NOT NULL,
-  followee_id INTEGER NOT NULL,
-  created_at INTEGER NOT NULL,
+  follower_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followee_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL,
   PRIMARY KEY (follower_id, followee_id)
 );
+CREATE INDEX IF NOT EXISTS follows_followee ON follows(followee_id);
 CREATE TABLE IF NOT EXISTS activity (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   kind TEXT NOT NULL,
   tmdb_id INTEGER NOT NULL,
   title TEXT NOT NULL,
   season INTEGER,
   episode INTEGER,
   poster TEXT,
-  watched_at INTEGER NOT NULL,
-  hidden INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  watched_at BIGINT NOT NULL,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at BIGINT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS activity_created ON activity(created_at);
--- IFNULL: a plain UNIQUE treats NULLs as distinct, so a movie (no season) would repeat.
+CREATE INDEX IF NOT EXISTS activity_user ON activity(user_id, created_at DESC);
+-- COALESCE: a plain UNIQUE treats NULLs as distinct, so a movie (no season) would repeat.
 CREATE UNIQUE INDEX IF NOT EXISTS activity_once
-  ON activity(user_id, kind, tmdb_id, IFNULL(season, -1), IFNULL(episode, -1));
--- A comment group per post while unread (count grows), one follow per pair ever: few notifications by design.
+  ON activity(user_id, kind, tmdb_id, COALESCE(season, -1), COALESCE(episode, -1));
+-- A comment or like group per post while unread (count grows), one follow per pair ever: few notifications by design.
 CREATE TABLE IF NOT EXISTS notifications (
-  id INTEGER PRIMARY KEY,
-  user_id INTEGER NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   kind TEXT NOT NULL,
-  actor_id INTEGER NOT NULL,
-  post_id INTEGER,
+  actor_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  post_id BIGINT REFERENCES posts(id) ON DELETE CASCADE,
   count INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL,
-  read INTEGER NOT NULL DEFAULT 0
+  created_at BIGINT NOT NULL,
+  read BOOLEAN NOT NULL DEFAULT FALSE
 );
-CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at);
+CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at DESC);
+-- Who liked what before, so unliking and liking again never notifies twice.
+CREATE TABLE IF NOT EXISTS like_notified (
+  post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL,
+  PRIMARY KEY (post_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS media (
   id TEXT PRIMARY KEY,
   content_type TEXT NOT NULL,
-  bytes BLOB NOT NULL
+  bytes BYTEA NOT NULL
 );
 """
 
+TABLES = ("like_notified", "notifications", "likes", "comments", "activity", "follows", "posts", "devices", "sessions",
+          "challenges", "media", "users")
+
 
 def now_ms() -> int:
-    return int(time.time() * 1000)
+    return int(time.time() * 1000)  # time.time looked up at call time, so tests can move the clock
 
 
-def connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript(SCHEMA)
-    return conn
+class Row(dict):
+    """A row by column name, or by position (row[0]) for one-value queries."""
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+def _row_factory(cursor):
+    names = [c.name for c in cursor.description] if cursor.description else []
+    return lambda values: Row(zip(names, values))
+
+
+class Result:
+    def __init__(self, rows: list, rowcount: int):
+        self._rows = rows
+        self.rowcount = rowcount
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self):
+        return self._rows
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+def _sql(text: str) -> str:
+    return text.replace("%", "%%").replace("?", "%s")
+
+
+class Database:
+    def __init__(self, dsn: str, *, min_size: int = 1, max_size: int = 8):
+        self.pool = ConnectionPool(dsn, min_size=min_size, max_size=max_size, open=True,
+                                   kwargs={"autocommit": True, "row_factory": _row_factory})
+        with self.pool.connection() as conn:
+            conn.execute(SCHEMA)
+
+    def execute(self, sql: str, params=()) -> Result:
+        with self.pool.connection() as conn:
+            return self._run(conn, sql, params)
+
+    @staticmethod
+    def _run(conn, sql, params) -> Result:
+        cur = conn.execute(_sql(sql), tuple(params))
+        rows = cur.fetchall() if cur.description else []
+        return Result(rows, cur.rowcount)
+
+    @contextmanager
+    def transaction(self):
+        """The writes inside land together (used by the few multi-row writes). Not shared between threads."""
+        with self.pool.connection() as conn, conn.transaction():
+            runner = _Bound(conn)
+            yield runner
+
+    def truncate_all(self) -> None:
+        with self.pool.connection() as conn:
+            conn.execute("TRUNCATE " + ", ".join(TABLES) + " RESTART IDENTITY CASCADE")
+
+    def close(self) -> None:
+        self.pool.close()
+
+
+class _Bound:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, params=()) -> Result:
+        return Database._run(self._conn, sql, params)
+
+
+def connect(dsn: str) -> Database:
+    return Database(dsn)
