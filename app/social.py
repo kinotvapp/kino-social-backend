@@ -1,7 +1,7 @@
 """The social API: posts, one-level comments, follows, watched activity and profiles."""
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from . import db, profanity
+from . import db, notify, profanity
 from .main import current_user, user_json
 
 router = APIRouter()
@@ -145,6 +145,7 @@ def add_comment(post_id: int, body: dict, request: Request, user=Depends(current
     now = db.now_ms()
     cur = conn.execute("INSERT INTO comments (post_id, user_id, text, created_at) VALUES (?, ?, ?, ?)",
                        (post_id, user["id"], text, now))
+    notify.comment(conn, post_id, user["id"])
     return {"id": cur.lastrowid, "user": {"id": user["id"], "name": user["name"]}, "text": text, "createdAt": now}
 
 
@@ -278,6 +279,7 @@ def follow(user_id: int, request: Request, user=Depends(current_user)):
     _limit(request, user, "follow")
     conn.execute("INSERT OR IGNORE INTO follows (follower_id, followee_id, created_at) VALUES (?, ?, ?)",
                  (user["id"], user_id, db.now_ms()))
+    notify.follow(conn, user_id, user["id"])
     return {"ok": True}
 
 

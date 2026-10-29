@@ -88,9 +88,10 @@ def create_app(db_path: str, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetch
     def me(user=Depends(current_user)):
         return user_json(user)
 
-    from . import social
+    from . import notify, social
 
     app.include_router(social.router)
+    app.include_router(notify.router)
     return app
 
 

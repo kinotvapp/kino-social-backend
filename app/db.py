@@ -59,6 +59,18 @@ CREATE INDEX IF NOT EXISTS activity_created ON activity(created_at);
 -- IFNULL: a plain UNIQUE treats NULLs as distinct, so a movie (no season) would repeat.
 CREATE UNIQUE INDEX IF NOT EXISTS activity_once
   ON activity(user_id, kind, tmdb_id, IFNULL(season, -1), IFNULL(episode, -1));
+-- A comment group per post while unread (count grows), one follow per pair ever: few notifications by design.
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  actor_id INTEGER NOT NULL,
+  post_id INTEGER,
+  count INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  read INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at);
 CREATE TABLE IF NOT EXISTS media (
   id TEXT PRIMARY KEY,
   content_type TEXT NOT NULL,
