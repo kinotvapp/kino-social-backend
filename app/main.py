@@ -2,7 +2,7 @@
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from . import auth, db
 from .ratelimit import RateLimiter
@@ -67,6 +67,14 @@ def create_app(db_path: str, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetch
         user = conn.execute("SELECT * FROM users WHERE id = ?", (tg,)).fetchone()
         return {"session": key, "user": user_json(user)}
 
+    @app.get("/media/{media_id}")
+    def media(media_id: str):
+        row = app.state.db.execute("SELECT content_type, bytes FROM media WHERE id = ?", (media_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "not_found")
+        return Response(row["bytes"], media_type=row["content_type"],
+                        headers={"Cache-Control": "public, max-age=604800", "X-Content-Type-Options": "nosniff"})
+
     @app.get("/me")
     def me(user=Depends(current_user)):
         return user_json(user)
@@ -77,7 +85,14 @@ def create_app(db_path: str, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetch
     return app
 
 
-app = create_app(
-    os.environ.get("KINO_SOCIAL_DB", "data/social.db"),
-    public_key_b64=os.environ.get("KINO_SOCIAL_PUBLIC_KEY", auth.PUBLIC_KEY_B64),
-) if os.environ.get("KINO_SOCIAL_SERVE") == "1" else None
+def _serve() -> FastAPI:
+    from .preview import Fetcher
+
+    return create_app(
+        os.environ.get("KINO_SOCIAL_DB", "data/social.db"),
+        public_key_b64=os.environ.get("KINO_SOCIAL_PUBLIC_KEY", auth.PUBLIC_KEY_B64),
+        fetcher=Fetcher(public_url=os.environ.get("KINO_SOCIAL_PUBLIC_URL", "https://social.comparadorinternet.co")),
+    )
+
+
+app = _serve() if os.environ.get("KINO_SOCIAL_SERVE") == "1" else None
