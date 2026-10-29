@@ -69,6 +69,27 @@ def test_stolen_token_from_another_key_is_refused(client, session_for, device):
     assert session_for(TG, owner, device_hash="phone").status_code == 200
 
 
+def test_a_reinstall_that_validated_again_rebinds_the_device(client, session_for, device):
+    # Reinstalling Kino wipes the Keystore key but keeps the device hash (app-scoped ANDROID_ID): the person validates with
+    # the bot again, and that newer token may bind the new key. The old token cannot.
+    old, new = device(), device()
+    assert session_for(TG, old, device_hash="tv", iat=100).status_code == 200
+    assert session_for(TG, new, device_hash="tv", iat=100).status_code == 401
+    assert session_for(TG, new, device_hash="tv", iat=200).status_code == 200
+    r = session_for(TG, old, device_hash="tv", iat=100)
+    assert r.status_code == 401 and r.json()["error"] == "device_key_mismatch"
+
+
+def test_logout_everywhere_unbinds_the_devices(client, session_for, device):
+    old, new = device(), device()
+    first = session_for(TG, old, device_hash="tv")
+    assert first.status_code == 200
+    assert session_for(TG, new, device_hash="tv").status_code == 401
+    headers = {"Authorization": "Bearer " + first.json()["session"]}
+    assert client.post("/me/logout-all", headers=headers).status_code == 200
+    assert session_for(TG, new, device_hash="tv").status_code == 200
+
+
 def test_challenge_is_single_use_and_expires(client, session_for, device, monkeypatch):
     dev = device()
     ch = client.post("/session/challenge").json()["challenge"]

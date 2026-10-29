@@ -102,8 +102,8 @@ def session_for(client, make_token):
     """POST /session the way the plugin does: a challenge, then the token and the device's signature over it."""
 
     def start(tg: int, dev: Device, *, device_hash: str = "d1", challenge: str | None = None, signature: str | None = None,
-              author: str = ""):
-        payload = {"app": "com.arkiv.player.light", "device": device_hash, "iat": 1, "tg": tg}
+              author: str = "", iat: int = 1):
+        payload = {"app": "com.arkiv.player.light", "device": device_hash, "iat": iat, "tg": tg}
         ch = challenge or client.post("/session/challenge").json()["challenge"]
         return client.post("/session", json={
             "token": make_token(payload), "challenge": ch, "deviceKey": dev.public, "author": author, "codeHash": "ab" * 32,

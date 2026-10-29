@@ -38,3 +38,11 @@ def test_search_people_by_handle_or_name(client, login):
     assert [p["id"] for p in by_name] == [2]
     assert client.get("/people?q=x", headers=a).status_code == 400  # at least 2 characters
     assert [p["id"] for p in client.get("/people?q=ana", headers=a).json()["items"]] == []  # never yourself
+
+
+def test_search_skips_people_who_never_picked_a_handle(client, login):
+    a = login(1)
+    login(2, "Andrea")  # never finished the welcome: no @handle yet
+    d = login(3, "Andrés")
+    client.patch("/me", json={"handle": "andres"}, headers=d)
+    assert [p["handle"] for p in client.get("/people?q=and", headers=a).json()["items"]] == ["andres"]

@@ -56,6 +56,15 @@ def verify_gate_token(token, public_key_b64: str = PUBLIC_KEY_B64) -> tuple[int,
     return tg, device[:128]
 
 
+def token_iat(token: str) -> int:
+    """When the bot signed [token] (already verified), or 0."""
+    try:
+        iat = json.loads(_b64url_decode(token.strip().split(".")[0])).get("iat")
+    except (binascii.Error, ValueError, UnicodeError, AttributeError):
+        return 0
+    return iat if isinstance(iat, int) and not isinstance(iat, bool) and iat > 0 else 0
+
+
 def signed_message(challenge: str, author: str, code_hash: str, plugin_id: str = PLUGIN_ID) -> bytes:
     """What Kino signs with the install's key: the plugin, the challenge, and which code asked (its verified author's
     fingerprint, "" when unsigned, and the SHA-256 of the entry file Kino runs)."""

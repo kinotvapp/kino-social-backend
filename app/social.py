@@ -485,7 +485,7 @@ def people(request: Request, q: str | None = None, user=Depends(current_user)):
         rows = conn.execute(
             "SELECT u.id, u.name, u.handle, u.bio, (f.follower_id IS NOT NULL) AS following FROM users u"
             " LEFT JOIN follows f ON f.followee_id = u.id AND f.follower_id = ?"
-            " WHERE u.id <> ? AND (u.handle LIKE ? OR u.name_folded LIKE ?)"
+            " WHERE u.id <> ? AND u.handle IS NOT NULL AND (u.handle LIKE ? OR u.name_folded LIKE ?)"
             " ORDER BY (u.handle LIKE ?) DESC, u.handle NULLS LAST LIMIT 30",
             (me, me, handle_prefix, like, handle_prefix),
         ).fetchall()

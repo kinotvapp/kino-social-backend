@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS devices (
   created_at BIGINT NOT NULL,
   PRIMARY KEY (user_id, device_hash)
 );
+-- The issue time of the gate token that bound the key: only a newer one (the bot again, after a reinstall) may rebind.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS bound_iat BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS challenges (
   challenge TEXT PRIMARY KEY,
   expires_at BIGINT NOT NULL

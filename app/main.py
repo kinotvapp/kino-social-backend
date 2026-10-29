@@ -116,6 +116,7 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetcher=N
             raise HTTPException(403, "unofficial_plugin")
         tg, device_hash = who
         device_key = body["deviceKey"]
+        iat = auth.token_iat(body["token"])
         ukey = auth.user_key(app.state.secret, tg)
         with conn.transaction() as tx:
             row = tx.execute("SELECT id FROM users WHERE user_key = ?", (ukey,)).fetchone()
@@ -126,15 +127,20 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetcher=N
                     " ON CONFLICT (user_key) DO UPDATE SET user_key = EXCLUDED.user_key RETURNING id",
                     (ukey, name, name.lower(), now)).fetchone()
             user_id = row["id"]
-            bound = tx.execute("SELECT device_key FROM devices WHERE user_id = ? AND device_hash = ?",
+            bound = tx.execute("SELECT device_key, bound_iat FROM devices WHERE user_id = ? AND device_hash = ?",
                                (user_id, device_hash)).fetchone()
             if bound is None:
                 if tx.execute("SELECT COUNT(*) FROM devices WHERE user_id = ?", (user_id,)).fetchone()[0] >= auth.MAX_DEVICES:
                     raise HTTPException(403, "too_many_devices")
-                tx.execute("INSERT INTO devices (user_id, device_hash, device_key, created_at) VALUES (?, ?, ?, ?)",
-                           (user_id, device_hash, device_key, now))
+                tx.execute("INSERT INTO devices (user_id, device_hash, device_key, created_at, bound_iat) VALUES (?, ?, ?, ?, ?)",
+                           (user_id, device_hash, device_key, now, iat))
             elif bound["device_key"] != device_key:
-                raise HTTPException(401, "device_key_mismatch")
+                # A reinstall wipes the Keystore key but not the device hash: a token the bot signed after the binding
+                # (the person validated again) moves it to the new key; the token the old key used cannot.
+                if iat <= bound["bound_iat"]:
+                    raise HTTPException(401, "device_key_mismatch")
+                tx.execute("UPDATE devices SET device_key = ?, bound_iat = ? WHERE user_id = ? AND device_hash = ?",
+                           (device_key, iat, user_id, device_hash))
             key = auth.new_session_key()
             tx.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
             tx.execute("INSERT INTO sessions (key, user_id, expires_at) VALUES (?, ?, ?)", (key, user_id, now + auth.SESSION_MS))
@@ -143,7 +149,10 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetcher=N
 
     @app.post("/me/logout-all")
     def logout_all(user=Depends(current_user)):
-        app.state.db.execute("DELETE FROM sessions WHERE user_id = ?", (user["id"],))
+        # Every session and every device binding: a device that lost its key (a reinstall) can log in again.
+        with app.state.db.transaction() as tx:
+            tx.execute("DELETE FROM sessions WHERE user_id = ?", (user["id"],))
+            tx.execute("DELETE FROM devices WHERE user_id = ?", (user["id"],))
         return {"ok": True}
 
     @app.get("/media/{media_id}")
