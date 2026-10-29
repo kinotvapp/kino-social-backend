@@ -1,5 +1,7 @@
 # Kino Social backend
 
+> **Since 2026-10-29 the live server runs on Oracle Cloud** (https://129-158-250-81.sslip.io): see [ORACLE.md](ORACLE.md) and `scripts/oracle.sh`. The setup below is this PC's old copy; do not start it again.
+
 The server of the Kino Social plugin (an experiment; the one plugin Kino's owner allowed a backend for, 2026-10-28).
 FastAPI on this PC, `127.0.0.1:8787`, reached only through the Cloudflare tunnel `kino-social`
 (`d3dfd239-fa2d-488f-8878-12b8f834642a`) at **https://social.comparadorinternet.co**.
