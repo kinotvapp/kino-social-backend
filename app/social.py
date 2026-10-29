@@ -158,7 +158,10 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
         (user["id"], text, link.get("url"), link.get("title"), link.get("desc"), link.get("site"), link.get("image"),
          tmdb.get("kind"), tmdb.get("id"), db.now_ms()),
     ).fetchone()["id"]
-    _bump(request, "feed", "people", f"user:{user['id']}")
+    from . import notify
+
+    told = notify.new_post(conn, user["id"], new_id)
+    _bump(request, "feed", "people", f"user:{user['id']}", *(f"notif:{f}" for f in told))
     return _post_json(_one_post(conn, user["id"], new_id))
 
 

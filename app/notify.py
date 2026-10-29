@@ -1,5 +1,6 @@
-"""Notifications: comments and likes on your posts, new followers. Kept few on purpose: one unread group per post and
-kind, one follow notice per pair ever, one like notice per person and post ever."""
+"""Notifications: comments and likes on your posts, new followers, new posts of people you follow. Kept few on purpose:
+one unread group per post and kind, one follow notice per pair ever, one like notice per person and post ever, one unread
+new-posts notice per author (it points at the newest)."""
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from . import db
@@ -41,6 +42,21 @@ def follow(conn, followee_id: int, actor_id: int) -> None:
     if seen is None:
         conn.execute("INSERT INTO notifications (user_id, kind, actor_id, created_at) VALUES (?, 'follow', ?, ?)",
                      (followee_id, actor_id, db.now_ms()))
+
+
+def new_post(conn, author_id: int, post_id: int) -> list[int]:
+    """Each follower of [author_id] hears of [post_id]; the followers told (their notification caches change)."""
+    now = db.now_ms()
+    grown = {r["user_id"] for r in conn.execute(
+        "UPDATE notifications SET count = count + 1, post_id = ?, created_at = ? WHERE kind = 'post' AND actor_id = ? AND NOT read"
+        " AND user_id IN (SELECT follower_id FROM follows WHERE followee_id = ?) RETURNING user_id",
+        (post_id, now, author_id, author_id))}
+    followers = [r["follower_id"] for r in conn.execute("SELECT follower_id FROM follows WHERE followee_id = ?", (author_id,))]
+    for f in followers:
+        if f not in grown:
+            conn.execute("INSERT INTO notifications (user_id, kind, actor_id, post_id, created_at) VALUES (?, 'post', ?, ?, ?)",
+                         (f, author_id, post_id, now))
+    return followers
 
 
 @router.get("/notifications")

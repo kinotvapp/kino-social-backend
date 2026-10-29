@@ -36,3 +36,21 @@ def test_unfollow_then_follow_again_does_not_spam(client, login):
         client.delete("/follow/1", headers=b)
     client.post("/follow/1", headers=b)
     assert len(client.get("/notifications", headers=a).json()["items"]) == 1
+
+
+def test_a_new_post_tells_followers_once_per_author_until_read(client, login):
+    a = login(1, "ana")
+    b = login(2, "beto")
+    client.post("/follow/2", headers=a)
+    first = client.post("/posts", json={"text": "Primera"}, headers=b).json()
+    second = client.post("/posts", json={"text": "Segunda"}, headers=b).json()
+    items = [n for n in client.get("/notifications", headers=a).json()["items"] if n["kind"] == "post"]
+    assert len(items) == 1 and items[0]["count"] == 2 and items[0]["postId"] == second["id"]
+    assert items[0]["actor"]["id"] == 2 and items[0]["postText"] == "Segunda"
+    client.post("/notifications/read", json={"upTo": items[0]["createdAt"]}, headers=a)
+    client.post("/posts", json={"text": "Tercera"}, headers=b)
+    fresh = [n for n in client.get("/notifications", headers=a).json()["items"] if n["kind"] == "post" and not n["read"]]
+    assert len(fresh) == 1 and fresh[0]["count"] == 1
+    # The author is never told about their own post, and someone who does not follow hears nothing.
+    assert [n for n in client.get("/notifications", headers=b).json()["items"] if n["kind"] == "post"] == []
+    assert first["id"] != second["id"]
