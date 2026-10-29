@@ -128,3 +128,20 @@ def test_rate_limit_posts(client, login):
     a = login(1)
     codes = [client.post("/posts", json={"text": f"n{i}"}, headers=a).status_code for i in range(11)]
     assert codes[:10] == [200] * 10 and codes[10] == 429
+
+
+def test_watch_activity_only_for_followers(client, login):
+    a = login(1, "ana")
+    b = login(2, "beto")
+    _watch(client, b)
+    assert client.get("/users/2", headers=a).json()["activity"] == []  # a stranger who opened the profile from a comment
+    client.post("/follow/2", headers=a)
+    assert len(client.get("/users/2", headers=a).json()["activity"]) == 1
+    client.delete("/follow/2", headers=a)
+    assert client.get("/users/2", headers=a).json()["activity"] == []
+
+
+def test_activity_uploads_are_limited(client, login):
+    a = login(1, "ana")
+    codes = [_watch(client, a, tmdbId=1000 + i).status_code for i in range(31)]
+    assert codes[:30] == [200] * 30 and codes[30] == 429

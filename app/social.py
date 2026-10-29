@@ -13,7 +13,7 @@ from .main import current_user, user_json
 router = APIRouter()
 
 POST_MAX, COMMENT_MAX, NAME_MAX, BIO_MAX = 500, 300, 40, 160
-LIMITS = {"post": 10, "comment": 30, "follow": 30, "like": 60, "handle": 10}
+LIMITS = {"post": 10, "comment": 30, "follow": 30, "like": 60, "handle": 10, "activity": 30}
 FEED_ACTIVITY_WINDOW_MS = 3 * 86_400_000
 TMDB_IMAGES = "https://image.tmdb.org/"
 MAX_RUN = 2  # never more than two feed items in a row from one person while others can be mixed in
@@ -373,6 +373,7 @@ def add_activity(body: dict, request: Request, user=Depends(current_user)):
     items = body.get("items")
     if not isinstance(items, list) or len(items) > 100:
         raise HTTPException(400, "bad_items")
+    _limit(request, user, "activity")
     conn = request.app.state.db
     added = 0
     now = db.now_ms()
@@ -425,7 +426,9 @@ def profile(user_id: int, request: Request, user=Depends(current_user)):
             raise HTTPException(404, "not_found")
         own = user_id == user["id"]
         activity = []
-        if own or target["share_activity"]:
+        # What someone watched is for the people who follow them (spec), never a stranger who opened the profile.
+        if own or (target["share_activity"] and conn.execute(
+                "SELECT 1 FROM follows WHERE follower_id = ? AND followee_id = ?", (user["id"], user_id)).fetchone()):
             activity = conn.execute(
                 ACTIVITY_SQL + " WHERE a.user_id = ? AND NOT a.hidden ORDER BY a.watched_at DESC, a.id DESC LIMIT 50",
                 (user_id,)).fetchall()

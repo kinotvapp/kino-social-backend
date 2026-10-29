@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+-- Which device's binding opened the session: a rebind ends only that device's sessions.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS device_hash TEXT;
 -- Each install's P-256 key, bound to the gate token's device hash the first time that device logs in.
 CREATE TABLE IF NOT EXISTS devices (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

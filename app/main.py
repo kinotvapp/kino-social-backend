@@ -141,9 +141,15 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetcher=N
                     raise HTTPException(401, "device_key_mismatch")
                 tx.execute("UPDATE devices SET device_key = ?, bound_iat = ? WHERE user_id = ? AND device_hash = ?",
                            (device_key, iat, user_id, device_hash))
+                # Whatever the old key opened on this device ends: if it was a thief's, it loses the account with the rebind.
+                tx.execute("DELETE FROM sessions WHERE user_id = ? AND device_hash = ?", (user_id, device_hash))
+            elif iat > bound["bound_iat"]:
+                # The bound key itself used a newer token: older tokens can no longer move the binding.
+                tx.execute("UPDATE devices SET bound_iat = ? WHERE user_id = ? AND device_hash = ?", (iat, user_id, device_hash))
             key = auth.new_session_key()
             tx.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
-            tx.execute("INSERT INTO sessions (key, user_id, expires_at) VALUES (?, ?, ?)", (key, user_id, now + auth.SESSION_MS))
+            tx.execute("INSERT INTO sessions (key, user_id, expires_at, device_hash) VALUES (?, ?, ?, ?)",
+                       (key, user_id, now + auth.SESSION_MS, device_hash))
             user = tx.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return {"session": key, "user": user_json(user)}
 

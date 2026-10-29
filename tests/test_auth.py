@@ -139,3 +139,27 @@ def test_login_attempts_are_limited_per_address(client):
     codes = [client.post("/session/challenge", headers={"cf-connecting-ip": "203.0.113.9"}).status_code for _ in range(31)]
     assert codes[:30] == [200] * 30 and codes[30] == 429
     assert client.post("/session/challenge", headers={"cf-connecting-ip": "203.0.113.10"}).status_code == 200
+
+
+def test_the_rebind_window_closes_once_the_bound_key_used_a_newer_token(client, session_for, device):
+    owner, thief = device(), device()
+    assert session_for(TG, owner, device_hash="tv", iat=100).status_code == 200
+    assert session_for(TG, owner, device_hash="tv", iat=300).status_code == 200  # the person validated again, same key
+    r = session_for(TG, thief, device_hash="tv", iat=200)  # an older token stolen in between
+    assert r.status_code == 401 and r.json()["error"] == "device_key_mismatch"
+
+
+def test_a_rebind_ends_the_sessions_the_old_key_opened(client, session_for, device):
+    old, new = device(), device()
+    first = session_for(TG, old, device_hash="tv", iat=100)
+    headers = {"Authorization": "Bearer " + first.json()["session"]}
+    assert client.get("/me", headers=headers).status_code == 200
+    assert session_for(TG, new, device_hash="tv", iat=200).status_code == 200
+    assert client.get("/me", headers=headers).status_code == 401
+
+
+def test_a_rebind_leaves_the_person_s_other_devices_logged_in(client, session_for, device):
+    phone = session_for(TG, device(), device_hash="phone", iat=100)
+    assert session_for(TG, device(), device_hash="tv", iat=100).status_code == 200
+    assert session_for(TG, device(), device_hash="tv", iat=200).status_code == 200  # the TV was reinstalled
+    assert client.get("/me", headers={"Authorization": "Bearer " + phone.json()["session"]}).status_code == 200
