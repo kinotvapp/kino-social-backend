@@ -1,0 +1,6 @@
+tunnel: d3dfd239-fa2d-488f-8878-12b8f834642a
+credentials-file: C:\Users\User\.cloudflared\d3dfd239-fa2d-488f-8878-12b8f834642a.json
+ingress:
+  - hostname: social.comparadorinternet.co
+    service: http://127.0.0.1:8787
+  - service: http_status:404
