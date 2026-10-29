@@ -13,7 +13,7 @@ from .main import current_user, user_json
 router = APIRouter()
 
 POST_MAX, COMMENT_MAX, NAME_MAX, BIO_MAX = 500, 300, 40, 160
-LIMITS = {"post": 10, "comment": 30, "follow": 30, "like": 60, "handle": 10, "activity": 30}
+LIMITS = {"post": 10, "comment": 30, "follow": 30, "like": 60, "handle": 10, "activity": 30, "community": 3}
 FEED_ACTIVITY_WINDOW_MS = 3 * 86_400_000
 TMDB_IMAGES = "https://image.tmdb.org/"
 MAX_RUN = 2  # never more than two feed items in a row from one person while others can be mixed in
@@ -60,6 +60,8 @@ def _post_json(row) -> dict:
         if row["preview_tmdb"]:
             link["tmdb"] = {"kind": row["preview_kind"], "id": row["preview_tmdb"]}
         item["link"] = link
+    if row["community_id"]:
+        item["community"] = {"id": row["community_id"], "name": row["community_name"], "slug": row["community_slug"]}
     return item
 
 
@@ -81,8 +83,10 @@ def _activity_json(row, *, with_hidden: bool = False) -> dict:
 
 # The viewer's id is the first parameter of every query built on these.
 POSTS_SQL = """
-SELECT p.*, u.name AS author_name, u.handle AS author_handle, (l.user_id IS NOT NULL) AS liked
+SELECT p.*, u.name AS author_name, u.handle AS author_handle, (l.user_id IS NOT NULL) AS liked,
+       cm.name AS community_name, cm.slug AS community_slug, cm.owner_id AS community_owner
 FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
+LEFT JOIN communities cm ON cm.id = p.community_id
 """
 ACTIVITY_SQL = "SELECT a.*, u.name AS author_name, u.handle AS author_handle FROM activity a JOIN users u ON u.id = a.user_id"
 
@@ -151,19 +155,24 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
     _limit(request, user, "post")
     from . import preview
 
+    conn = request.app.state.db
+    from . import communities, notify
+
+    community = communities.postable(conn, body.get("communityId"), user["id"])
     link = preview.link_for(text, body.get("link"), body.get("title"))
     tmdb = link.get("tmdb") or {}
-    conn = request.app.state.db
     new_id = conn.execute(
         "INSERT INTO posts (user_id, text, link_url, preview_title, preview_desc, preview_site, preview_media, preview_kind,"
-        " preview_tmdb, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        " preview_tmdb, community_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (user["id"], text, link.get("url"), link.get("title"), link.get("desc"), link.get("site"), link.get("image"),
-         tmdb.get("kind"), tmdb.get("id"), db.now_ms()),
+         tmdb.get("kind"), tmdb.get("id"), community, db.now_ms()),
     ).fetchone()["id"]
-    from . import notify
-
-    told = notify.new_post(conn, user["id"], new_id)
-    _bump(request, "feed", "people", f"user:{user['id']}", *(f"notif:{f}" for f in told))
+    if community is None:
+        told = notify.new_post(conn, user["id"], new_id)
+        _bump(request, "feed", "people", f"user:{user['id']}", *(f"notif:{f}" for f in told))
+    else:
+        told = communities.posted(conn, community, user["id"], new_id)
+        _bump(request, "feed", "communities", f"community:{community}", f"user:{user['id']}", *(f"notif:{f}" for f in told))
     return _post_json(_one_post(conn, user["id"], new_id))
 
 
@@ -178,9 +187,19 @@ def _owned(conn, table: str, row_id: int, user):
 
 @router.delete("/posts/{post_id}")
 def delete_post(post_id: int, request: Request, user=Depends(current_user)):
-    _owned(request.app.state.db, "posts", post_id, user)
-    request.app.state.db.execute("DELETE FROM posts WHERE id = ?", (post_id,))  # comments, likes, notices cascade
-    _bump(request, "feed", "people", f"post:{post_id}", f"user:{user['id']}", f"notif:{user['id']}")
+    conn = request.app.state.db
+    row = conn.execute("SELECT p.user_id, p.community_id, c.owner_id FROM posts p LEFT JOIN communities c ON c.id = p.community_id"
+                       " WHERE p.id = ?", (post_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "not_found")
+    # Its author, or the owner of the community it was posted in (moderation).
+    if user["id"] not in (row["user_id"], row["owner_id"]):
+        raise HTTPException(403, "not_yours")
+    conn.execute("DELETE FROM posts WHERE id = ?", (post_id,))  # comments, likes, notices cascade
+    if row["community_id"]:
+        conn.execute("UPDATE communities SET post_count = GREATEST(post_count - 1, 0) WHERE id = ?", (row["community_id"],))
+    _bump(request, "feed", "people", f"post:{post_id}", f"user:{row['user_id']}", f"notif:{row['user_id']}",
+          *([f"community:{row['community_id']}", "communities"] if row["community_id"] else []))
     return {"ok": True}
 
 
@@ -324,7 +343,7 @@ def _feed(request: Request, user, before: int | None, limit: int) -> dict:
     limit = max(1, min(limit, 50))
     cutoff = before if before is not None else 2**62
     conn = request.app.state.db
-    posts = conn.execute(POSTS_SQL + " WHERE p.created_at < ? ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
+    posts = conn.execute(POSTS_SQL + " WHERE p.community_id IS NULL AND p.created_at < ? ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
                          (user["id"], cutoff, limit)).fetchall()
     activity = conn.execute(
         ACTIVITY_SQL + " JOIN follows f ON f.followee_id = a.user_id AND f.follower_id = ?"

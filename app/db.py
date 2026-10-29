@@ -125,10 +125,32 @@ CREATE TABLE IF NOT EXISTS media (
   content_type TEXT NOT NULL,
   bytes BYTEA NOT NULL
 );
+-- Communities: anyone creates one, anyone reads and joins, members post; a post belongs to at most one.
+CREATE TABLE IF NOT EXISTS communities (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  name_folded TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  member_count INTEGER NOT NULL DEFAULT 0,
+  post_count INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS community_members (
+  community_id BIGINT NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (community_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS community_members_user ON community_members(user_id);
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS community_id BIGINT REFERENCES communities(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS posts_community ON posts(community_id, created_at DESC, id DESC);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS community_id BIGINT REFERENCES communities(id) ON DELETE CASCADE;
 """
 
-TABLES = ("like_notified", "notifications", "likes", "comments", "activity", "follows", "posts", "devices", "sessions",
-          "challenges", "media", "users")
+TABLES = ("like_notified", "notifications", "likes", "comments", "activity", "follows", "posts", "community_members",
+          "communities", "devices", "sessions", "challenges", "media", "users")
 
 
 def now_ms() -> int:

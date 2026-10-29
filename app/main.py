@@ -172,10 +172,11 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: b
     def me(user=Depends(current_user)):
         return user_json(user)
 
-    from . import notify, social
+    from . import communities, notify, social
 
     app.include_router(social.router)
     app.include_router(notify.router)
+    app.include_router(communities.router)
     return app
 
 

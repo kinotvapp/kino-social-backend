@@ -65,8 +65,9 @@ def list_notifications(request: Request, since: int = 0, user=Depends(current_us
 
     def compute():
         rows = conn.execute(
-            "SELECT n.*, u.name AS actor_name, u.handle AS actor_handle, p.text AS post_text FROM notifications n"
-            " JOIN users u ON u.id = n.actor_id LEFT JOIN posts p ON p.id = n.post_id"
+            "SELECT n.*, u.name AS actor_name, u.handle AS actor_handle, p.text AS post_text, c.name AS community_name,"
+            " c.slug AS community_slug FROM notifications n"
+            " JOIN users u ON u.id = n.actor_id LEFT JOIN posts p ON p.id = n.post_id LEFT JOIN communities c ON c.id = n.community_id"
             " WHERE n.user_id = ? AND n.created_at > ? ORDER BY n.created_at DESC, n.id DESC LIMIT 30",
             (user["id"], since),
         ).fetchall()
@@ -79,6 +80,8 @@ def list_notifications(request: Request, since: int = 0, user=Depends(current_us
             if r["post_id"] is not None:
                 item["postId"] = r["post_id"]
                 item["postText"] = (r["post_text"] or "")[:80]
+            if r["community_id"] is not None:
+                item["community"] = {"id": r["community_id"], "name": r["community_name"], "slug": r["community_slug"]}
             items.append(item)
         return {"items": items, "unread": unread}
 
