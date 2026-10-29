@@ -83,15 +83,9 @@ def device():
 
 
 @pytest.fixture
-def fetcher():
-    """Link previews off unless a test installs its own."""
-    return None
-
-
-@pytest.fixture
-def client(database, public_b64, fetcher):
+def client(database, public_b64):
     database.truncate_all()
-    app = create_app(database, public_key_b64=public_b64, fetcher=fetcher, secret=b"test-secret")
+    app = create_app(database, public_key_b64=public_b64, secret=b"test-secret")
     with TestClient(app) as c:
         c.app_db = database
         yield c

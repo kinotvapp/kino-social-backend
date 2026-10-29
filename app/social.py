@@ -52,7 +52,9 @@ def _post_json(row) -> dict:
     if row["link_url"]:
         link = {"url": row["link_url"]}
         if row["preview_title"]:
-            link.update(title=row["preview_title"], desc=row["preview_desc"], site=row["preview_site"])
+            link.update(title=row["preview_title"], site=row["preview_site"])
+            if row["preview_desc"]:
+                link["desc"] = row["preview_desc"]
         if row["preview_media"]:
             link["image"] = row["preview_media"]
         if row["preview_tmdb"]:
@@ -149,7 +151,7 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
     _limit(request, user, "post")
     from . import preview
 
-    link = preview.link_for(request.app, text, body.get("title"))
+    link = preview.link_for(text, body.get("link"), body.get("title"))
     tmdb = link.get("tmdb") or {}
     conn = request.app.state.db
     new_id = conn.execute(

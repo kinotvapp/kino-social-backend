@@ -52,14 +52,13 @@ def load_secret(path: str) -> bytes:
     return data
 
 
-def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetcher=None, secret: bytes,
+def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: bytes,
                redis_client=None, allowed_authors: set[str] | None = None) -> FastAPI:
     """[database] a db.Database (or a DSN). [allowed_authors]: the plugin author fingerprints a session may come from
     (None: any, unsigned too — only for development)."""
     app = FastAPI(title="Kino Social")
     app.state.db = db.connect(database) if isinstance(database, str) else database
     app.state.public_key_b64 = public_key_b64
-    app.state.fetcher = fetcher
     app.state.secret = secret
     app.state.allowed_authors = allowed_authors
     if redis_client is not None:
@@ -197,8 +196,6 @@ def _env_file() -> dict:
 def _serve() -> FastAPI:
     import redis
 
-    from .preview import Fetcher
-
     env = {**_env_file(), **os.environ}
     data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
     authors = {a.strip() for a in env.get("KINO_SOCIAL_AUTHORS", "").split(",") if a.strip()}
@@ -206,7 +203,6 @@ def _serve() -> FastAPI:
     return create_app(
         env["KINO_SOCIAL_DSN"],
         public_key_b64=env.get("KINO_SOCIAL_PUBLIC_KEY", auth.PUBLIC_KEY_B64),
-        fetcher=Fetcher(public_url=env.get("KINO_SOCIAL_PUBLIC_URL", "https://social.comparadorinternet.co")),
         secret=load_secret(os.path.join(data_dir, "secret.key")),
         redis_client=redis.Redis.from_url(redis_url, socket_timeout=0.5, socket_connect_timeout=0.5) if redis_url else None,
         allowed_authors=authors or None,

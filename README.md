@@ -49,7 +49,7 @@ while nothing a read depends on changed. Preview images: `Cache-Control: public,
 | --- | --- |
 | `POST /session/challenge`, `POST /session {token, challenge, deviceKey, signature, author, codeHash}` | log in |
 | `GET /me`, `PATCH /me {handle?, name?, bio?, shareActivity?}`, `GET /handles/<h>`, `POST /me/logout-all` | the person |
-| `POST /posts {text}`, `GET/DELETE /posts/<id>`, `POST/DELETE /posts/<id>/like` | posts (masked, link preview) |
+| `POST /posts {text}`, `GET/DELETE /posts/<id>`, `POST/DELETE /posts/<id>/like` | posts (masked; the link preview comes from the device, the server only checks it) |
 | `GET/POST /posts/<id>/comments`, `DELETE /comments/<id>` | one level of comments |
 | `GET /feed?before=&limit=` | everyone's posts + activity of people you follow, mixed (≤2 in a row per person), episodes grouped, suggestions while you follow fewer than 3 |
 | `POST /activity {items}`, `GET /me/activity`, `PATCH /me/activity/<id> {hidden}` | what you watched |
