@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   username TEXT,
   name TEXT,
+  bio TEXT NOT NULL DEFAULT '',
   share_activity INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER
 );
@@ -52,10 +53,12 @@ CREATE TABLE IF NOT EXISTS activity (
   poster TEXT,
   watched_at INTEGER NOT NULL,
   hidden INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  UNIQUE (user_id, kind, tmdb_id, season, episode)
+  created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS activity_created ON activity(created_at);
+-- IFNULL: a plain UNIQUE treats NULLs as distinct, so a movie (no season) would repeat.
+CREATE UNIQUE INDEX IF NOT EXISTS activity_once
+  ON activity(user_id, kind, tmdb_id, IFNULL(season, -1), IFNULL(episode, -1));
 CREATE TABLE IF NOT EXISTS media (
   id TEXT PRIMARY KEY,
   content_type TEXT NOT NULL,

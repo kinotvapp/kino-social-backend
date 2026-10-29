@@ -5,10 +5,11 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from . import auth, db
+from .ratelimit import RateLimiter
 
 
 def user_json(row) -> dict:
-    return {"id": row["id"], "name": row["name"], "shareActivity": bool(row["share_activity"])}
+    return {"id": row["id"], "name": row["name"], "bio": row["bio"], "shareActivity": bool(row["share_activity"])}
 
 
 def current_user(request: Request):
@@ -31,6 +32,7 @@ def create_app(db_path: str, *, public_key_b64: str = auth.PUBLIC_KEY_B64, fetch
     app.state.db = db.connect(db_path)
     app.state.public_key_b64 = public_key_b64
     app.state.fetcher = fetcher
+    app.state.limiter = RateLimiter()
 
     @app.exception_handler(HTTPException)
     async def _error(_request, exc: HTTPException):
