@@ -13,7 +13,6 @@ URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 TRAILING = ".,;:!?)]}»\"'"
 ADULT_DOMAINS = {"pornhub.com", "xvideos.com", "xnxx.com", "xhamster.com", "onlyfans.com", "redtube.com",
                  "youporn.com", "chaturbate.com"}
-TITLE_HOSTS = {"themoviedb.org", "imdb.com"}
 TMDB_IMAGES = "https://image.tmdb.org/t/p/"
 IMAGE = re.compile(r"^https://[^/\s]+\.[^/\s]+\S*$")
 
@@ -87,30 +86,36 @@ def _title_card(hint) -> dict | None:
     return out
 
 
-def _from_tmdb(url: str, hint) -> dict | None:
-    """The title Kino's TMDB found for a TMDB or IMDb link (those sites refuse previews)."""
-    if not _host_in(_host(url), TITLE_HOSTS):
-        return None
-    return _title_card(hint)
-
-
 def tmdb_url(kind: str, tmdb_id: int) -> str:
     return f"https://www.themoviedb.org/{'movie' if kind == 'movie' else 'tv'}/{tmdb_id}"
 
 
+TMDB_LINK = re.compile(r"^https?://(?:www\.)?themoviedb\.org/(movie|tv)/(\d{1,9})(?:[/?#-]|$)", re.IGNORECASE)
+
+
+def _is_link_to(url: str | None, card: dict) -> bool:
+    """Whether [url] is a TMDB link to this very title (then it stays the card's address)."""
+    m = TMDB_LINK.match(url or "")
+    return bool(m) and ("movie" if m.group(1).lower() == "movie" else "series") == card["tmdb"]["kind"] \
+        and int(m.group(2)) == card["tmdb"]["id"]
+
+
 def link_for(text: str, sent=None, hint=None) -> dict:
-    """{} without a link or an attached title; {"url"} when there is no usable preview; else url, title, desc, site, image
-    and tmdb as checked. A title attached without a link in the text (the composer's «Adjuntar película o serie») makes
-    the card on its own, pointing at the title's TMDB page; with a link in the text, the link decides as before."""
+    """{} without a link or a title; {"url"} when there is no usable preview; else url, title, desc, site, image and tmdb
+    as checked. A valid title ([hint]: the composer's attachment, or what the device found for a TMDB or IMDb link) always
+    makes the card (owner, 2026-10-30: the title the person picked wins over any link in the text, which stays plain
+    text); its address is the post's own TMDB link when that link is about it, else the title's TMDB page (an
+    IMDb id cannot be checked here, so an IMDb link never is)."""
     url = first_url(text)
+    card = _title_card(hint)
+    if card:
+        address = url if _is_link_to(url, card) else tmdb_url(card["tmdb"]["kind"], card["tmdb"]["id"])
+        return {"url": address, **{k: v for k, v in card.items() if v is not None}}
     if url is None:
-        card = _title_card(hint)
-        if not card:
-            return {}
-        return {"url": tmdb_url(card["tmdb"]["kind"], card["tmdb"]["id"]), **{k: v for k, v in card.items() if v is not None}}
+        return {}
     if _host_in(_host(url), ADULT_DOMAINS):
         return {"url": url}
-    found = _from_tmdb(url, hint) or _from_device(url, sent)
+    found = _from_device(url, sent)
     if not found:
         return {"url": url}
     return {"url": url, **{k: v for k, v in found.items() if v is not None}}

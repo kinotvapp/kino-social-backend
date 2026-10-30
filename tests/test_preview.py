@@ -50,9 +50,9 @@ def test_a_tmdb_or_imdb_link_takes_the_title_kino_found(client, login):
     hint = {"kind": "movie", "tmdbId": 693134, "title": "Dune: Parte dos", "year": 2024, "poster": "https://image.tmdb.org/t/p/w342/dune.jpg"}
     a = login(1)
     link = post(client, a, "Brutal https://www.imdb.com/title/tt15239678/", title=hint)["link"]
-    assert link == {"url": "https://www.imdb.com/title/tt15239678/", "title": "Dune: Parte dos", "desc": "2024", "site": "TMDB",
+    # An IMDb id cannot be checked on the server: the card points at the title's TMDB page.
+    assert link == {"url": "https://www.themoviedb.org/movie/693134", "title": "Dune: Parte dos", "desc": "2024", "site": "TMDB",
                     "image": "https://image.tmdb.org/t/p/w342/dune.jpg", "tmdb": {"kind": "movie", "id": 693134}}
-    assert "tmdb" not in post(client, a, "https://blog.example/x", title=hint)["link"]
     bad = post(client, a, "https://www.themoviedb.org/movie/693134", title={**hint, "poster": "https://evil.example/p.jpg"})["link"]
     assert bad["tmdb"] == {"kind": "movie", "id": 693134} and "image" not in bad
 
@@ -106,12 +106,46 @@ def test_an_attached_title_is_cleaned_and_masked(client, login):
     assert link["title"].startswith("Qué xxxx") and "<" not in link["title"] and len(link["title"]) <= 120
 
 
-def test_with_a_link_in_the_text_the_link_wins(client, login):
+def test_the_attached_title_wins_over_any_link(client, login):
     a = login(1)
     other = {"kind": "series", "tmdbId": 1396, "title": "Breaking Bad"}
-    # A TMDB link: the hint describes it, as before (the composer sends the link's own title then).
-    assert post(client, a, "https://www.themoviedb.org/movie/693134", title=DUNE)["link"]["url"] == "https://www.themoviedb.org/movie/693134"
-    # Any other link: its own preview (or none), never the attached title.
-    link = post(client, a, "Mira " + URL, link=GOOD, title=other)["link"]
-    assert link == GOOD
-    assert post(client, a, "Mira https://blog.example/x", title=other)["link"] == {"url": "https://blog.example/x"}
+    bb = {"url": "https://www.themoviedb.org/tv/1396", "title": "Breaking Bad", "site": "TMDB", "tmdb": {"kind": "series", "id": 1396}}
+    # A TMDB link to the same title stays the card's address.
+    assert post(client, a, "https://www.themoviedb.org/movie/693134-dune", title=DUNE)["link"]["url"] == "https://www.themoviedb.org/movie/693134-dune"
+    # A TMDB or IMDb link to another title: the title the person picked wins.
+    assert post(client, a, "Mira https://www.themoviedb.org/movie/693134", title=other)["link"] == bb
+    assert post(client, a, "Mira https://www.imdb.com/title/tt15239678/", title=other)["link"] == bb
+    # Any other link: the attached title's card; the link stays plain text and its preview is ignored.
+    out = post(client, a, "Mira " + URL, link=GOOD, title=other)
+    assert out["link"] == bb and out["text"] == "Mira " + URL
+    assert post(client, a, "Mira https://blog.example/x", title=other)["link"] == bb
+    assert post(client, a, "https://www.pornhub.com/view", title=other)["link"] == bb
+    # Without a valid title, a link behaves as before.
+    assert post(client, a, "Mira " + URL, link=GOOD, title={**other, "kind": "person"})["link"] == GOOD
+
+
+# ---- line breaks (owner, 2026-10-30: at most one blank line in a row, none at the end) --------------------------------
+
+
+def test_tidy_lines():
+    from app.social import tidy_lines
+
+    assert tidy_lines("a\nb\n\nc") == "a\nb\n\nc"
+    assert tidy_lines("a\n\n\nb") == "a\n\nb"
+    assert tidy_lines("a\n \n\t\n  \n\nb") == "a\n\nb"
+    assert tidy_lines("a\r\n\r\n\r\nb\r\nc") == "a\n\nb\nc"
+    assert tidy_lines("a\n\n\n\n") == "a"
+    assert tidy_lines("\n\n  hola  \n\n\n") == "hola"
+
+
+def test_posts_and_comments_keep_at_most_one_blank_line(client, login):
+    a = login(1)
+    out = post(client, a, "Uno\n\n\n\n\nDos\nTres\n\n\n")
+    assert out["text"] == "Uno\n\nDos\nTres"
+    # 500 characters counted after tidying: a long run of empty lines does not use up the limit.
+    assert post(client, a, "x" * 490 + "\n" * 50 + "y")["text"] == "x" * 490 + "\n\ny"
+    r = client.post(f"/posts/{out['id']}/comments", json={"text": "Sí\n\n\n\ntotal\n\n"}, headers=a)
+    assert r.status_code == 200 and r.json()["text"] == "Sí\n\ntotal"
+    assert client.get(f"/posts/{out['id']}/comments", headers=a).json()["items"][0]["text"] == "Sí\n\ntotal"
+
+

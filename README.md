@@ -56,8 +56,8 @@ while nothing a read depends on changed. Preview images: `Cache-Control: public,
 | --- | --- |
 | `POST /session/challenge`, `POST /session {token, challenge, deviceKey, signature, author, codeHash}` | log in |
 | `GET /me`, `PATCH /me {handle?, name?, bio?, shareActivity?}`, `GET /handles/<h>`, `POST /me/logout-all` | the person |
-| `POST /posts {text, link?, title?, communityId?}`, `GET/DELETE /posts/<id>`, `POST/DELETE /posts/<id>/like` | posts (masked; the link preview comes from the device, the server only checks it; a `title` `{kind, tmdbId, title, year?, poster?}` without a link in the text makes the card alone, pointing at its TMDB page, and then `text` may be empty) |
-| `GET/POST /posts/<id>/comments`, `DELETE /comments/<id>` | one level of comments |
+| `POST /posts {text, link?, title?, communityId?}`, `GET/DELETE /posts/<id>`, `POST/DELETE /posts/<id>/like` | posts (masked; the link preview comes from the device, the server only checks it; a valid `title` `{kind, tmdbId, title, year?, poster?}` always makes the card, over any link in the text (which stays plain text, its preview ignored), pointing at the title's TMDB page unless the text holds a TMDB link to that same title; with such a card `text` may be empty; runs of 3 or more line breaks become 2, and trailing blank lines go) |
+| `GET/POST /posts/<id>/comments`, `DELETE /comments/<id>` | one level of comments (line breaks tidied as for posts) |
 | `GET /feed?before=&limit=` | everyone's posts + activity of people you follow, mixed (≤2 in a row per person), episodes grouped, suggestions while you follow fewer than 3 |
 | `POST /activity {items}`, `GET /me/activity`, `PATCH /me/activity/<id> {hidden}` | what you watched |
 | `GET /users/<id>`, `GET /people[?q=]`, `POST/DELETE /follow/<id>` | profiles, search, follows |

@@ -23,11 +23,21 @@ RESERVED = {"kino", "kinotv", "kinoapp", "admin", "administrador", "root", "sopo
             "moderador", "moderator", "staff", "oficial", "official", "system", "sistema", "telegram", "social", "null"}
 
 
-def _raw_text(body: dict, key: str, max_len: int, *, allow_empty: bool = False) -> str:
+BLANK_RUN = re.compile(r"\n[ \t]*(?:\n[ \t]*)+\n")
+
+
+def tidy_lines(text: str) -> str:
+    """A post's or comment's line breaks: CR LF and CR as LF, a run of 3 or more line breaks (blank lines in between) as
+    2, no blank lines at the end (owner, 2026-10-30: a post cannot be mostly empty lines)."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return BLANK_RUN.sub("\n\n", text).strip()
+
+
+def _raw_text(body: dict, key: str, max_len: int, *, allow_empty: bool = False, lines: bool = False) -> str:
     value = body.get(key)
     if not isinstance(value, str):
         raise HTTPException(400, "bad_" + key)
-    value = value.strip()
+    value = tidy_lines(value) if lines else value.strip()
     if (not value and not allow_empty) or len(value) > max_len:
         raise HTTPException(400, "bad_" + key)
     return value
@@ -158,7 +168,7 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
     from . import preview
 
     # The text may be empty only when the post carries a title the server accepted (the composer's attachment).
-    raw = _raw_text(body, "text", POST_MAX, allow_empty=True)
+    raw = _raw_text(body, "text", POST_MAX, allow_empty=True, lines=True)
     link = preview.link_for(profanity.mask(raw), body.get("link"), body.get("title"))
     if not raw and not link.get("tmdb"):
         raise HTTPException(400, "bad_text")
@@ -288,7 +298,7 @@ def list_comments(post_id: int, request: Request, user=Depends(current_user)):
 
 @router.post("/posts/{post_id}/comments")
 def add_comment(post_id: int, body: dict, request: Request, user=Depends(current_user)):
-    raw = _raw_text(body, "text", COMMENT_MAX)
+    raw = _raw_text(body, "text", COMMENT_MAX, lines=True)
     moderation.check(user)
     text = profanity.mask(raw)
     conn = request.app.state.db
