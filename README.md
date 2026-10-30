@@ -38,6 +38,11 @@ Register-ScheduledTask -TaskName KinoSocial -Action $a -Trigger (New-ScheduledTa
 - The Telegram id is never stored: users are `HMAC(secret, telegram id)`; the public ids are this server's own numbers.
   Display names default to «Usuario XXXX»; `@handle` is chosen by the person (unique, case-insensitive).
 - Limits per person per hour: 10 posts, 30 comments, 60 likes, 30 follows, 10 handle changes.
+- Moderation (`app/moderation.py`): a new post or comment that gets masked (the server's list hit, or the text already
+  holds the device's `xxxx`) is a strike; strikes count for 12 h; the third mutes the person for 12 h (strikes cleared).
+  The response then carries `moderation: {strikes, limit: 3, mutedUntil?}`; while muted, posts and comments answer 403
+  `{"error": "muted", "mutedUntil": <ms>}` and `GET /me` says `mutedUntil`. Likes, follows and reading stay allowed.
+  `SWEARS` is kept identical to the plugin's `src/swear.js` (`tests/test_swear_lists.py`).
 
 ## Caching
 

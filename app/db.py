@@ -147,9 +147,16 @@ CREATE INDEX IF NOT EXISTS community_members_user ON community_members(user_id);
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS community_id BIGINT REFERENCES communities(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS posts_community ON posts(community_id, created_at DESC, id DESC);
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS community_id BIGINT REFERENCES communities(id) ON DELETE CASCADE;
+-- Moderation (owner, 2026-10-29): a strike per masked post or comment, counted for 12 h; the third mutes for 12 h.
+CREATE TABLE IF NOT EXISTS strikes (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS strikes_user ON strikes(user_id, created_at);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS muted_until BIGINT NOT NULL DEFAULT 0;
 """
 
-TABLES = ("like_notified", "notifications", "likes", "comments", "activity", "follows", "posts", "community_members",
+TABLES = ("strikes", "like_notified", "notifications", "likes", "comments", "activity", "follows", "posts", "community_members",
           "communities", "devices", "sessions", "challenges", "media", "users")
 
 

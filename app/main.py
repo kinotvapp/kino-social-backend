@@ -9,7 +9,7 @@ import secrets
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
-from . import auth, db
+from . import auth, db, moderation
 from .cache import MemoryStore, ReadCache, RedisStore
 from .ratelimit import RateLimiter, RedisRateLimiter
 
@@ -72,7 +72,8 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: b
 
     @app.exception_handler(HTTPException)
     async def _error(_request, exc: HTTPException):
-        return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+        # A few errors carry more than their code (moderation.Muted: mutedUntil).
+        return JSONResponse({"error": exc.detail, **getattr(exc, "extra", {})}, status_code=exc.status_code)
 
     @app.get("/health")
     def health():
@@ -170,7 +171,11 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: b
 
     @app.get("/me")
     def me(user=Depends(current_user)):
-        return user_json(user)
+        out = user_json(user)
+        until = moderation.muted_until(user)
+        if until:
+            out["mutedUntil"] = until  # the plugin locks its composer and comment field until then
+        return out
 
     from . import communities, notify, social
 

@@ -7,7 +7,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from . import db, notify, profanity
+from . import db, moderation, notify, profanity
 from .main import current_user, user_json
 
 router = APIRouter()
@@ -23,14 +23,18 @@ RESERVED = {"kino", "kinotv", "kinoapp", "admin", "administrador", "root", "sopo
             "moderador", "moderator", "staff", "oficial", "official", "system", "sistema", "telegram", "social", "null"}
 
 
-def _text(body: dict, key: str, max_len: int, *, allow_empty: bool = False) -> str:
+def _raw_text(body: dict, key: str, max_len: int, *, allow_empty: bool = False) -> str:
     value = body.get(key)
     if not isinstance(value, str):
         raise HTTPException(400, "bad_" + key)
     value = value.strip()
     if (not value and not allow_empty) or len(value) > max_len:
         raise HTTPException(400, "bad_" + key)
-    return profanity.mask(value)
+    return value
+
+
+def _text(body: dict, key: str, max_len: int, *, allow_empty: bool = False) -> str:
+    return profanity.mask(_raw_text(body, key, max_len, allow_empty=allow_empty))
 
 
 def _limit(request: Request, user, bucket: str) -> None:
@@ -151,7 +155,9 @@ def update_me(body: dict, request: Request, user=Depends(current_user)):
 
 @router.post("/posts")
 def create_post(body: dict, request: Request, user=Depends(current_user)):
-    text = _text(body, "text", POST_MAX)
+    raw = _raw_text(body, "text", POST_MAX)
+    moderation.check(user)
+    text = profanity.mask(raw)
     _limit(request, user, "post")
     from . import preview
 
@@ -173,7 +179,10 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
     else:
         told = communities.posted(conn, community, user["id"], new_id)
         _bump(request, "feed", "communities", f"community:{community}", f"user:{user['id']}", *(f"notif:{f}" for f in told))
-    return _post_json(_one_post(conn, user["id"], new_id))
+    out = _post_json(_one_post(conn, user["id"], new_id))
+    if moderation.offends(raw):
+        out["moderation"] = moderation.strike(conn, user["id"])  # saved masked; a third strike mutes from now on
+    return out
 
 
 def _owned(conn, table: str, row_id: int, user):
@@ -271,7 +280,9 @@ def list_comments(post_id: int, request: Request, user=Depends(current_user)):
 
 @router.post("/posts/{post_id}/comments")
 def add_comment(post_id: int, body: dict, request: Request, user=Depends(current_user)):
-    text = _text(body, "text", COMMENT_MAX)
+    raw = _raw_text(body, "text", COMMENT_MAX)
+    moderation.check(user)
+    text = profanity.mask(raw)
     conn = request.app.state.db
     owner = _post_owner(conn, post_id)
     _limit(request, user, "comment")
@@ -282,7 +293,10 @@ def add_comment(post_id: int, body: dict, request: Request, user=Depends(current
         tx.execute("UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?", (post_id,))
         notify.comment(tx, post_id, owner, user["id"])
     _bump(request, "feed", f"post:{post_id}", f"user:{owner}", f"notif:{owner}")
-    return {"id": new_id, "user": {"id": user["id"], "name": user["name"], "handle": user["handle"]}, "text": text, "createdAt": now}
+    out = {"id": new_id, "user": {"id": user["id"], "name": user["name"], "handle": user["handle"]}, "text": text, "createdAt": now}
+    if moderation.offends(raw):
+        out["moderation"] = moderation.strike(conn, user["id"])
+    return out
 
 
 @router.delete("/comments/{comment_id}")
