@@ -1,11 +1,13 @@
 # Creator profiles: design
 
-**Status (2026-10-30): redesigned, §1-3 need rework.** The owner changed the trust direction (below) after the first
-pass: §1-3 as first built (commit `6b9c21e`, branch `feat/creator-profile`, not merged, not deployed) let a person
-self-report an unverified `githubUsername` on their profile -- §5 flagged this as impersonation-prone, and the owner
-asked for the fix the same day: flip which side makes the claim. Nothing built against the OLD §1-3 survives; it is
-kept below only as a record of what not to rebuild. §4 (the `installPlugin` go) and §6 (the plugin UI) are still just
-this design and are unaffected by the flip (tapping a plugin on a profile still goes through §4 the same way).
+**Status (2026-10-30): redesigned; §1-3 rebuilt against the new direction, §6 (plugin UI) still just this design.**
+The owner changed the trust direction (below) after the first pass: §1-3 as first built (commit `6b9c21e`, branch
+`feat/creator-profile`, not merged, not deployed) let a person self-report an unverified `githubUsername` on their
+profile -- §5 flagged this as impersonation-prone, and the owner asked for the fix the same day: flip which side
+makes the claim. Nothing built against the OLD §1-3 survives; it is kept below only as a record of what not to
+rebuild. §4 (the `installPlugin` go) already shipped in `kino-app` (the `welcome-notice` worktree); the manifest's
+`creator` field (§1a) and the index job's `entries.js` reader (§1b) are done in `kino-plugins`/`kino-plugin-store`;
+the backend (§1, §1b's pull, §1c, §3) is built on this branch, not yet tested against a real Postgres or deployed.
 
 What the owner asked for (2026-10-29, same conversation as the welcome notice and the auto-install list): when setting up
 a profile, say whether you are a plugin creator. A creator gets a special badge, and Kino Social shows the plugins that

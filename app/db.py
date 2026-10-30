@@ -162,15 +162,19 @@ CREATE TABLE IF NOT EXISTS community_requests (
   created_at BIGINT NOT NULL,
   PRIMARY KEY (community_id, user_id)
 );
--- Creator profiles (owner, 2026-10-29): a plugin author's GitHub username; its badge and plugin list show whenever set.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS github_username TEXT;
--- Cached GitHub search results per username, re-fetched when stale: avoids hitting GitHub's search rate limit once per
--- profile view, and keeps the last good list when GitHub is down or rate-limited.
+-- Creator profiles (owner, 2026-10-30): which Kino Social handle each kino-plugin repo names as its author, from the
+-- manifest's own `creator` field (CREATOR-PROFILE-SPEC.md §1a) -- never a claim a person types about themselves.
+-- Refreshed wholesale from kino-plugin-store's public index.json (§1b); `hidden` is the one thing a person sets.
 CREATE TABLE IF NOT EXISTS creator_plugins (
-  github_username TEXT PRIMARY KEY,
-  fetched_at BIGINT NOT NULL,
-  plugins TEXT NOT NULL
+  kino_user TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  stars INTEGER NOT NULL,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (kino_user, repo)
 );
+CREATE INDEX IF NOT EXISTS creator_plugins_user ON creator_plugins(kino_user) WHERE NOT hidden;
 """
 
 TABLES = ("strikes", "like_notified", "notifications", "likes", "comments", "activity", "follows", "posts",
