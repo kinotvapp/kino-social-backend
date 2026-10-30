@@ -1,4 +1,8 @@
-# Creator profiles: design (not built yet)
+# Creator profiles: design
+
+**Status (2026-10-30): §1-3 (backend) built and tested** — commit `6b9c21e` on branch `feat/creator-profile`
+(`kino-social-backend-creator` worktree), not merged to `main`, not deployed. §4 (the `installPlugin` go) and §6 (the
+plugin UI) are still just this design.
 
 What the owner asked for (2026-10-29, same conversation as the welcome notice and the auto-install list): when setting up
 a profile, say whether you are a plugin creator; if so, give your GitHub username. A creator gets a special badge. With
