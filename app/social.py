@@ -453,10 +453,10 @@ def add_activity(body: dict, request: Request, user=Depends(current_user)):
         added += conn.execute(
             "INSERT INTO activity (user_id, kind, tmdb_id, title, season, episode, poster, still, episode_title, watched_at, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-            (user["id"], *clean, now + i),  # +i: a batch keeps its order in the feed
+            (user["id"], *clean, now + i),  # +i: a batch keeps its order on the profile
         ).rowcount
     if added:
-        _bump(request, "feed", f"user:{user['id']}")
+        _bump(request, f"user:{user['id']}")
     return {"added": added}
 
 
@@ -474,7 +474,7 @@ def hide_activity(activity_id: int, body: dict, request: Request, user=Depends(c
     conn = request.app.state.db
     _owned(conn, "activity", activity_id, user)
     conn.execute("UPDATE activity SET hidden = ? WHERE id = ?", (body["hidden"], activity_id))
-    _bump(request, "feed", f"user:{user['id']}")
+    _bump(request, f"user:{user['id']}")
     return {"ok": True}
 
 
