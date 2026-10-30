@@ -18,7 +18,7 @@ SWEARS = {
     "cabrones", "cabronas", "cabronazo", "kbron", "kabron", "verga", "vergas", "vergazo", "vergazos", "culo", "culos",
     "culero", "culera", "culeros", "culeras", "coño", "imbecil", "imbeciles", "idiota", "idiotas", "estupido",
     "estupida", "estupidos", "estupidas", "comemierda", "comemierdas", "caremierda", "careculo", "lameculos", "ojete",
-    "ojetes", "mamon",
+    "ojetes", 
     # Colombia
     "gonorrea", "gonorreas", "careverga", "caremonda", "carechimba", "monda", "culicagado", "lambon", "mamaguevo",
     "mamaguevos", "mamahuevo", "mamahuevos",
@@ -55,10 +55,10 @@ SWEARS = {
     "motherfucking", "motherfucka", "mofo", "wtf", "stfu", "gtfo", "shit", "shits", "shitty", "shitting", "shithead",
     "shitheads", "shithole", "shitface", "shite", "sh1t", "bullshit", "dipshit", "horseshit", "bitch", "bitches",
     "bitchy", "bitching", "biatch", "sonofabitch", "asshole", "assholes", "arsehole", "arseholes", "asshat",
-    "asswipe", "dumbass", "dumbasses", "bastard", "bastards", "dick", "dickhead", "dickheads", "cocksucker",
+    "asswipe", "dumbass", "dumbasses", "bastard", "bastards", "dickhead", "dickheads", "cocksucker",
     "cocksuckers", "cunt", "cunts", "twat", "twats", "wanker", "wankers", "wank", "tosser", "tossers", "bellend",
     "knobhead", "bollocks", "jackoff", "jerkoff", "prick", "douchebag", "douchebags", "whore", "whores", "slut",
-    "sluts", "slutty", "skank", "skanks", "damn", "dammit", "goddamn", "goddamnit", "crap",
+    "sluts", "slutty", "skank", "skanks", "dammit", "goddamn", "goddamnit",
     # English slurs (racist, homophobic, transphobic, ableist)
     "nigger", "niggers", "nigga", "niggas", "sandnigger", "gook", "gooks", "spic", "spics", "wetback", "wetbacks",
     "beaner", "beaners", "kike", "kikes", "raghead", "ragheads", "towelhead", "towelheads", "paki", "pakis",
