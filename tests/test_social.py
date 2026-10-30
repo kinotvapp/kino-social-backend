@@ -186,3 +186,31 @@ def test_post_author_carries_coins_account(client, login):
     client.post(f"/posts/{pid}/comments", json={"text": "hola"}, headers=b)
     comment = client.get(f"/posts/{pid}/comments", headers=a).json()["items"][0]
     assert "coinsAccount" not in comment["user"]
+
+
+def test_post_with_season_episode(client, login):
+    a = login(1)
+    r = client.post("/posts", json={"text": "", "title": {
+        "kind": "series", "tmdbId": 66732, "title": "Stranger Things", "season": 4, "episode": 3}}, headers=a)
+    assert r.json()["link"]["season"] == 4 and r.json()["link"]["episode"] == 3
+
+
+def test_post_season_episode_dropped_for_a_movie(client, login):
+    a = login(1)
+    r = client.post("/posts", json={"text": "", "title": {
+        "kind": "movie", "tmdbId": 438631, "title": "Dune", "season": 4, "episode": 3}}, headers=a)
+    assert "season" not in r.json()["link"] and "episode" not in r.json()["link"]
+
+
+def test_post_season_episode_out_of_range_dropped(client, login):
+    a = login(1)
+    r = client.post("/posts", json={"text": "", "title": {
+        "kind": "series", "tmdbId": 66732, "title": "Stranger Things", "season": -1, "episode": 3}}, headers=a)
+    assert "season" not in r.json()["link"] and "episode" not in r.json()["link"]
+
+
+def test_two_posts_about_the_same_episode_both_succeed(client, login):
+    a = login(1)
+    title = {"kind": "series", "tmdbId": 66732, "title": "Stranger Things", "season": 4, "episode": 3}
+    assert client.post("/posts", json={"text": "", "title": title}, headers=a).status_code == 200
+    assert client.post("/posts", json={"text": "", "title": title}, headers=a).status_code == 200

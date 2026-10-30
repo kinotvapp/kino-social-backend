@@ -60,6 +60,19 @@ def _author(row) -> dict:
     return {"id": row["user_id"], "name": row["author_name"], "handle": row["author_handle"]}
 
 
+def _season_episode(hint: dict, kind: str | None) -> tuple[int | None, int | None]:
+    # A series episode the person attached to a post (player-panel comments). Both numbers must be plain ints within the
+    # bounds _clean_activity uses; a movie, or any bad number, stores nothing rather than 0/0.
+    if kind != "series":
+        return None, None
+    season, episode = hint.get("season"), hint.get("episode")
+    if not isinstance(season, int) or isinstance(season, bool) or not isinstance(episode, int) or isinstance(episode, bool):
+        return None, None
+    if not 0 <= season < 1000 or not 0 < episode < 10000:
+        return None, None
+    return season, episode
+
+
 def _post_json(row) -> dict:
     # coinsAccount: the author's user_key, which IS their account id in the coins service (same HMAC secret), so the plugin
     # can name the recipient of a gift. It reveals nothing a stranger can turn back into the Telegram id.
@@ -76,6 +89,10 @@ def _post_json(row) -> dict:
             link["image"] = row["preview_media"]
         if row["preview_tmdb"]:
             link["tmdb"] = {"kind": row["preview_kind"], "id": row["preview_tmdb"]}
+            if row["preview_season"] is not None:
+                link["season"] = row["preview_season"]
+            if row["preview_episode"] is not None:
+                link["episode"] = row["preview_episode"]
         item["link"] = link
     if row["community_id"]:
         item["community"] = {"id": row["community_id"], "name": row["community_name"], "slug": row["community_slug"]}
@@ -184,11 +201,13 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
 
     community = communities.postable(conn, body.get("communityId"), user["id"])
     tmdb = link.get("tmdb") or {}
+    season, episode = _season_episode(body.get("title") or {}, tmdb.get("kind"))
     new_id = conn.execute(
         "INSERT INTO posts (user_id, text, link_url, preview_title, preview_desc, preview_site, preview_media, preview_kind,"
-        " preview_tmdb, community_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        " preview_tmdb, preview_season, preview_episode, community_id, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (user["id"], text, link.get("url"), link.get("title"), link.get("desc"), link.get("site"), link.get("image"),
-         tmdb.get("kind"), tmdb.get("id"), community, db.now_ms()),
+         tmdb.get("kind"), tmdb.get("id"), season, episode, community, db.now_ms()),
     ).fetchone()["id"]
     if community is None:
         told = notify.new_post(conn, user["id"], new_id)
