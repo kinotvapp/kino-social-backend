@@ -20,7 +20,7 @@ CREATOR_REFRESH_INTERVAL_S = 24 * 3600
 
 def user_json(row) -> dict:
     return {"id": row["id"], "name": row["name"], "handle": row["handle"], "bio": row["bio"],
-            "shareActivity": bool(row["share_activity"])}
+            "shareActivity": bool(row["share_activity"]), "coinsAccount": row["user_key"]}
 
 
 def current_user(request: Request):

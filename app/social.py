@@ -61,7 +61,10 @@ def _author(row) -> dict:
 
 
 def _post_json(row) -> dict:
-    item = {"type": "post", "id": row["id"], "user": _author(row), "text": row["text"], "comments": row["comment_count"],
+    # coinsAccount: the author's user_key, which IS their account id in the coins service (same HMAC secret), so the plugin
+    # can name the recipient of a gift. It reveals nothing a stranger can turn back into the Telegram id.
+    author = {**_author(row), "coinsAccount": row["author_key"]}
+    item = {"type": "post", "id": row["id"], "user": author, "text": row["text"], "comments": row["comment_count"],
             "likes": row["like_count"], "liked": bool(row["liked"]), "createdAt": row["created_at"]}
     if row["link_url"]:
         link = {"url": row["link_url"]}
@@ -97,7 +100,7 @@ def _activity_json(row, *, with_hidden: bool = False) -> dict:
 
 # The viewer's id is the first parameter of every query built on these.
 POSTS_SQL = """
-SELECT p.*, u.name AS author_name, u.handle AS author_handle, (l.user_id IS NOT NULL) AS liked,
+SELECT p.*, u.name AS author_name, u.handle AS author_handle, u.user_key AS author_key, (l.user_id IS NOT NULL) AS liked,
        cm.name AS community_name, cm.slug AS community_slug, cm.owner_id AS community_owner
 FROM posts p JOIN users u ON u.id = p.user_id LEFT JOIN likes l ON l.post_id = p.id AND l.user_id = ?
 LEFT JOIN communities cm ON cm.id = p.community_id
@@ -512,6 +515,7 @@ def profile(user_id: int, request: Request, user=Depends(current_user)):
         return {
             "user": user_json(target) if own else {
                 "id": target["id"], "name": target["name"], "handle": target["handle"], "bio": target["bio"],
+                "coinsAccount": target["user_key"],
             },
             "following": _is_following(conn, user["id"], user_id),
             "followers": count("SELECT COUNT(*) FROM follows WHERE followee_id = ?"),

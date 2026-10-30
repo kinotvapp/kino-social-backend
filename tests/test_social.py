@@ -157,3 +157,32 @@ def test_an_episode_carries_its_still_and_name(client, login):
     _watch(client, b, tmdbId=5, still="https://evil.example/x.jpg", episodeTitle="x" * 300)
     other = [i for i in client.get("/feed", headers=a).json()["items"] if i["tmdbId"] == 5][0]
     assert other.get("still") is None and other.get("episodeTitle") is None
+
+
+def test_post_author_carries_coins_account(client, login):
+    from app import auth
+    from coins import auth as coins_auth
+
+    a = login(11, "ana")
+    b = login(12, "beto")
+    expected = coins_auth.account_id(b"test-secret", 11)
+    assert expected == auth.user_key(b"test-secret", 11)
+    created = client.post("/posts", json={"text": "monedas"}, headers=a).json()
+    assert created["user"]["coinsAccount"] == expected
+    pid = created["id"]
+    feed = client.get("/feed", headers=b).json()["items"]
+    assert feed[0]["user"] == {"id": a.user["id"], "name": "ana", "handle": a.user["handle"], "coinsAccount": expected}
+    assert client.get(f"/posts/{pid}", headers=b).json()["user"]["coinsAccount"] == expected
+    profile = client.get(f"/users/{a.user['id']}", headers=b).json()
+    assert profile["posts"][0]["user"]["coinsAccount"] == expected
+    # Someone else's profile gains only the coins account: no telegram id, no raw key under another name.
+    assert set(profile["user"]) == {"id", "name", "handle", "bio", "coinsAccount"}
+    assert profile["user"]["coinsAccount"] == expected
+    assert "shareActivity" not in profile["user"]
+    me = client.get("/me", headers=a).json()
+    assert me["coinsAccount"] == expected
+    assert "user_key" not in me and "tg" not in me
+    # Comments and activity stay as they were.
+    client.post(f"/posts/{pid}/comments", json={"text": "hola"}, headers=b)
+    comment = client.get(f"/posts/{pid}/comments", headers=a).json()["items"][0]
+    assert "coinsAccount" not in comment["user"]
