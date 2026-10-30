@@ -162,10 +162,20 @@ CREATE TABLE IF NOT EXISTS community_requests (
   created_at BIGINT NOT NULL,
   PRIMARY KEY (community_id, user_id)
 );
+-- Creator profiles (owner, 2026-10-29): a plugin author's GitHub username; its badge and plugin list show whenever set.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS github_username TEXT;
+-- Cached GitHub search results per username, re-fetched when stale: avoids hitting GitHub's search rate limit once per
+-- profile view, and keeps the last good list when GitHub is down or rate-limited.
+CREATE TABLE IF NOT EXISTS creator_plugins (
+  github_username TEXT PRIMARY KEY,
+  fetched_at BIGINT NOT NULL,
+  plugins TEXT NOT NULL
+);
 """
 
 TABLES = ("strikes", "like_notified", "notifications", "likes", "comments", "activity", "follows", "posts",
-          "community_requests", "community_members", "communities", "devices", "sessions", "challenges", "media", "users")
+          "community_requests", "community_members", "communities", "creator_plugins", "devices", "sessions",
+          "challenges", "media", "users")
 
 
 def now_ms() -> int:

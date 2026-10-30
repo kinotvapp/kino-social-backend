@@ -111,6 +111,23 @@ def _check_handle(value) -> str:
     return handle
 
 
+GITHUB_USERNAME = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$")
+
+
+def _check_github_username(value) -> str | None:
+    """None clears it; GitHub's own username rule otherwise (1 to 39 chars, no leading/trailing/double hyphen)."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise HTTPException(400, "bad_github_username")
+    name = value.strip().lstrip("@")
+    if not name:
+        return None
+    if not GITHUB_USERNAME.match(name):
+        raise HTTPException(400, "bad_github_username")
+    return name
+
+
 @router.get("/handles/{value}")
 def handle_available(value: str, request: Request, user=Depends(current_user)):
     try:
@@ -146,6 +163,10 @@ def update_me(body: dict, request: Request, user=Depends(current_user)):
         if not isinstance(body["shareActivity"], bool):
             raise HTTPException(400, "bad_shareActivity")
         conn.execute("UPDATE users SET share_activity = ? WHERE id = ?", (body["shareActivity"], user["id"]))
+    if "githubUsername" in body:
+        _limit(request, user, "handle")  # the same kind of change a bot could spam
+        conn.execute("UPDATE users SET github_username = ? WHERE id = ?",
+                     (_check_github_username(body["githubUsername"]), user["id"]))
     _bump(request, "feed", "people", f"user:{user['id']}")
     return user_json(conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone())
 
@@ -500,7 +521,10 @@ def profile(user_id: int, request: Request, user=Depends(current_user)):
                              (user["id"], user_id, user["id"])).fetchall()
         count = lambda sql: conn.execute(sql, (user_id,)).fetchone()[0]  # noqa: E731
         return {
-            "user": user_json(target) if own else {"id": target["id"], "name": target["name"], "handle": target["handle"], "bio": target["bio"]},
+            "user": user_json(target) if own else {
+                "id": target["id"], "name": target["name"], "handle": target["handle"], "bio": target["bio"],
+                **({"githubUsername": target["github_username"]} if target["github_username"] else {}),
+            },
             "following": _is_following(conn, user["id"], user_id),
             "followers": count("SELECT COUNT(*) FROM follows WHERE followee_id = ?"),
             "followingCount": count("SELECT COUNT(*) FROM follows WHERE follower_id = ?"),

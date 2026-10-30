@@ -18,8 +18,11 @@ LOGIN_PER_HOUR = 30
 
 
 def user_json(row) -> dict:
-    return {"id": row["id"], "name": row["name"], "handle": row["handle"], "bio": row["bio"],
-            "shareActivity": bool(row["share_activity"])}
+    out = {"id": row["id"], "name": row["name"], "handle": row["handle"], "bio": row["bio"],
+           "shareActivity": bool(row["share_activity"])}
+    if row["github_username"]:
+        out["githubUsername"] = row["github_username"]
+    return out
 
 
 def current_user(request: Request):
@@ -53,14 +56,17 @@ def load_secret(path: str) -> bytes:
 
 
 def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: bytes,
-               redis_client=None, allowed_authors: set[str] | None = None) -> FastAPI:
+               redis_client=None, allowed_authors: set[str] | None = None, github_fetch=None) -> FastAPI:
     """[database] a db.Database (or a DSN). [allowed_authors]: the plugin author fingerprints a session may come from
-    (None: any, unsigned too — only for development)."""
+    (None: any, unsigned too — only for development). [github_fetch]: replaces `creators.fetch` (tests only; real
+    requests never run in a test)."""
     app = FastAPI(title="Kino Social")
     app.state.db = db.connect(database) if isinstance(database, str) else database
     app.state.public_key_b64 = public_key_b64
     app.state.secret = secret
     app.state.allowed_authors = allowed_authors
+    if github_fetch is not None:
+        app.state.github_fetch = github_fetch
     if redis_client is not None:
         app.state.cache = ReadCache(RedisStore(redis_client), MemoryStore())
         app.state.limiter = RedisRateLimiter(redis_client)
@@ -177,11 +183,12 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: b
             out["mutedUntil"] = until  # the plugin locks its composer and comment field until then
         return out
 
-    from . import communities, notify, social
+    from . import communities, creators, notify, social
 
     app.include_router(social.router)
     app.include_router(notify.router)
     app.include_router(communities.router)
+    app.include_router(creators.router)
     return app
 
 
