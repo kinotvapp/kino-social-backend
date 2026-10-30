@@ -62,3 +62,7 @@ while nothing a read depends on changed. Preview images: `Cache-Control: public,
 | `POST /activity {items}`, `GET /me/activity`, `PATCH /me/activity/<id> {hidden}` | what you watched |
 | `GET /users/<id>`, `GET /people[?q=]`, `POST/DELETE /follow/<id>` | profiles, search, follows |
 | `GET /notifications?since=`, `POST /notifications/read {upTo}` | comments, likes, followers |
+
+## Licence
+
+Apache License 2.0, like the rest of Kino: free to use, change and share. See [LICENSE](LICENSE).
