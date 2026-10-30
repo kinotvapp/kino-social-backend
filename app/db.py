@@ -162,10 +162,24 @@ CREATE TABLE IF NOT EXISTS community_requests (
   created_at BIGINT NOT NULL,
   PRIMARY KEY (community_id, user_id)
 );
+-- Creator profiles (owner, 2026-10-30): which Kino Social handle each kino-plugin repo names as its author, from the
+-- manifest's own `creator` field (CREATOR-PROFILE-SPEC.md §1a) -- never a claim a person types about themselves.
+-- Refreshed wholesale from kino-plugin-store's public index.json (§1b); `hidden` is the one thing a person sets.
+CREATE TABLE IF NOT EXISTS creator_plugins (
+  kino_user TEXT NOT NULL,
+  repo TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  stars INTEGER NOT NULL,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (kino_user, repo)
+);
+CREATE INDEX IF NOT EXISTS creator_plugins_user ON creator_plugins(kino_user) WHERE NOT hidden;
 """
 
 TABLES = ("strikes", "like_notified", "notifications", "likes", "comments", "activity", "follows", "posts",
-          "community_requests", "community_members", "communities", "devices", "sessions", "challenges", "media", "users")
+          "community_requests", "community_members", "communities", "creator_plugins", "devices", "sessions",
+          "challenges", "media", "users")
 
 
 def now_ms() -> int:

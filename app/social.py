@@ -510,7 +510,9 @@ def profile(user_id: int, request: Request, user=Depends(current_user)):
                              (user["id"], user_id, user["id"])).fetchall()
         count = lambda sql: conn.execute(sql, (user_id,)).fetchone()[0]  # noqa: E731
         return {
-            "user": user_json(target) if own else {"id": target["id"], "name": target["name"], "handle": target["handle"], "bio": target["bio"]},
+            "user": user_json(target) if own else {
+                "id": target["id"], "name": target["name"], "handle": target["handle"], "bio": target["bio"],
+            },
             "following": _is_following(conn, user["id"], user_id),
             "followers": count("SELECT COUNT(*) FROM follows WHERE followee_id = ?"),
             "followingCount": count("SELECT COUNT(*) FROM follows WHERE follower_id = ?"),

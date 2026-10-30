@@ -15,6 +15,7 @@ from .ratelimit import RateLimiter, RedisRateLimiter
 
 log = logging.getLogger("kino_social")
 LOGIN_PER_HOUR = 30
+CREATOR_REFRESH_INTERVAL_S = 24 * 3600
 
 
 def user_json(row) -> dict:
@@ -53,14 +54,20 @@ def load_secret(path: str) -> bytes:
 
 
 def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: bytes,
-               redis_client=None, allowed_authors: set[str] | None = None) -> FastAPI:
+               redis_client=None, allowed_authors: set[str] | None = None, index_fetch=None,
+               start_creator_refresh: bool = False) -> FastAPI:
     """[database] a db.Database (or a DSN). [allowed_authors]: the plugin author fingerprints a session may come from
-    (None: any, unsigned too — only for development)."""
+    (None: any, unsigned too — only for development). [index_fetch]: replaces `creators.fetch_index` (tests only;
+    real requests never run in a test). [start_creator_refresh]: runs `creators.refresh` on a timer in a background
+    thread, same process -- only `_serve()` (the real server) turns this on, so a test run never touches the
+    network or sleeps on a thread it did not ask for."""
     app = FastAPI(title="Kino Social")
     app.state.db = db.connect(database) if isinstance(database, str) else database
     app.state.public_key_b64 = public_key_b64
     app.state.secret = secret
     app.state.allowed_authors = allowed_authors
+    if index_fetch is not None:
+        app.state.index_fetch = index_fetch
     if redis_client is not None:
         app.state.cache = ReadCache(RedisStore(redis_client), MemoryStore())
         app.state.limiter = RedisRateLimiter(redis_client)
@@ -177,11 +184,25 @@ def create_app(database, *, public_key_b64: str = auth.PUBLIC_KEY_B64, secret: b
             out["mutedUntil"] = until  # the plugin locks its composer and comment field until then
         return out
 
-    from . import communities, notify, social
+    from . import communities, creators, notify, social
 
     app.include_router(social.router)
     app.include_router(notify.router)
     app.include_router(communities.router)
+    app.include_router(creators.router)
+
+    if start_creator_refresh:
+        import threading
+        import time
+
+        def _loop():
+            fetch = getattr(app.state, "index_fetch", creators.fetch_index)
+            while True:
+                creators.refresh(app.state.db, fetch=fetch)
+                time.sleep(CREATOR_REFRESH_INTERVAL_S)
+
+        threading.Thread(target=_loop, name="creator-plugins-refresh", daemon=True).start()
+
     return app
 
 
@@ -212,6 +233,7 @@ def _serve() -> FastAPI:
         secret=load_secret(os.path.join(data_dir, "secret.key")),
         redis_client=redis.Redis.from_url(redis_url, socket_timeout=0.5, socket_connect_timeout=0.5) if redis_url else None,
         allowed_authors=authors or None,
+        start_creator_refresh=True,
     )
 
 
