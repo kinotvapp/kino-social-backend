@@ -154,10 +154,18 @@ CREATE TABLE IF NOT EXISTS strikes (
 );
 CREATE INDEX IF NOT EXISTS strikes_user ON strikes(user_id, created_at);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS muted_until BIGINT NOT NULL DEFAULT 0;
+-- Private communities (owner, 2026-10-29): joining is a request the owner approves or rejects.
+ALTER TABLE communities ADD COLUMN IF NOT EXISTS private BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS community_requests (
+  community_id BIGINT NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (community_id, user_id)
+);
 """
 
-TABLES = ("strikes", "like_notified", "notifications", "likes", "comments", "activity", "follows", "posts", "community_members",
-          "communities", "devices", "sessions", "challenges", "media", "users")
+TABLES = ("strikes", "like_notified", "notifications", "likes", "comments", "activity", "follows", "posts",
+          "community_requests", "community_members", "communities", "devices", "sessions", "challenges", "media", "users")
 
 
 def now_ms() -> int:

@@ -212,17 +212,18 @@ def delete_post(post_id: int, request: Request, user=Depends(current_user)):
     return {"ok": True}
 
 
-def _post_owner(conn, post_id: int) -> int:
-    row = conn.execute("SELECT user_id FROM posts WHERE id = ?", (post_id,)).fetchone()
-    if row is None:
-        raise HTTPException(404, "not_found")
-    return row["user_id"]
+def _post_owner(conn, post_id: int, viewer: int) -> int:
+    """Who wrote the post, once [viewer] may reach it (a private community's posts are for its members)."""
+    from . import communities
+
+    communities.post_readable(conn, post_id, viewer)
+    return conn.execute("SELECT user_id FROM posts WHERE id = ?", (post_id,)).fetchone()["user_id"]
 
 
 @router.post("/posts/{post_id}/like")
 def like(post_id: int, request: Request, user=Depends(current_user)):
     conn = request.app.state.db
-    owner = _post_owner(conn, post_id)
+    owner = _post_owner(conn, post_id, user["id"])
     _limit(request, user, "like")
     with conn.transaction() as tx:
         added = tx.execute("INSERT INTO likes (post_id, user_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
@@ -238,7 +239,7 @@ def like(post_id: int, request: Request, user=Depends(current_user)):
 @router.delete("/posts/{post_id}/like")
 def unlike(post_id: int, request: Request, user=Depends(current_user)):
     conn = request.app.state.db
-    owner = _post_owner(conn, post_id)
+    owner = _post_owner(conn, post_id, user["id"])
     _limit(request, user, "like")
     with conn.transaction() as tx:
         gone = tx.execute("DELETE FROM likes WHERE post_id = ? AND user_id = ?", (post_id, user["id"])).rowcount
@@ -252,6 +253,9 @@ def unlike(post_id: int, request: Request, user=Depends(current_user)):
 @router.get("/posts/{post_id}")
 def get_post(post_id: int, request: Request, user=Depends(current_user)):
     conn = request.app.state.db
+    from . import communities
+
+    communities.post_readable(conn, post_id, user["id"])
 
     def compute():
         row = _one_post(conn, user["id"], post_id)
@@ -265,7 +269,7 @@ def get_post(post_id: int, request: Request, user=Depends(current_user)):
 @router.get("/posts/{post_id}/comments")
 def list_comments(post_id: int, request: Request, user=Depends(current_user)):
     conn = request.app.state.db
-    _post_owner(conn, post_id)
+    _post_owner(conn, post_id, user["id"])
 
     def compute():
         rows = conn.execute(
@@ -284,7 +288,7 @@ def add_comment(post_id: int, body: dict, request: Request, user=Depends(current
     moderation.check(user)
     text = profanity.mask(raw)
     conn = request.app.state.db
-    owner = _post_owner(conn, post_id)
+    owner = _post_owner(conn, post_id, user["id"])
     _limit(request, user, "comment")
     now = db.now_ms()
     with conn.transaction() as tx:
@@ -486,7 +490,10 @@ def profile(user_id: int, request: Request, user=Depends(current_user)):
             activity = conn.execute(
                 ACTIVITY_SQL + " WHERE a.user_id = ? AND NOT a.hidden ORDER BY a.watched_at DESC, a.id DESC LIMIT 50",
                 (user_id,)).fetchall()
-        posts = conn.execute(POSTS_SQL + " WHERE p.user_id = ? ORDER BY p.created_at DESC LIMIT 20", (user["id"], user_id)).fetchall()
+        from . import communities
+
+        posts = conn.execute(POSTS_SQL + " WHERE p.user_id = ?" + communities.VISIBLE_POSTS + " ORDER BY p.created_at DESC LIMIT 20",
+                             (user["id"], user_id, user["id"])).fetchall()
         count = lambda sql: conn.execute(sql, (user_id,)).fetchone()[0]  # noqa: E731
         return {
             "user": user_json(target) if own else {"id": target["id"], "name": target["name"], "handle": target["handle"], "bio": target["bio"]},
