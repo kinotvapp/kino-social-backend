@@ -173,6 +173,9 @@ What is left once the claim lives in the manifest, not the profile:
    both local, not pushed, same session that wrote this redesign).
 3. Backend: `creator_plugins` (§1), the periodic `index.json` pull (§1b), hide/unhide (§1c), `GET /users/<id>/plugins`
    and `GET /me/plugins` (§3). None of the `feat/creator-profile` branch's old code (§1-3 as first built: `creators.py`,
-   the old `db.py`/`social.py` `githubUsername` wiring) carries over; it gets replaced, not migrated.
-4. Plugin: the badge, the section, the hide/unhide action, the fallback `go.url` for a Kino that doesn't have
-   `installPlugin` yet (`apiVersion`/manifest feature-detection the same way the rest of Kino Social already does it).
+   the old `db.py`/`social.py` `githubUsername` wiring) carries over; it gets replaced, not migrated. **Done** on this
+   branch, run against a real Postgres (10/10 of its own tests, 94/94 of the whole suite) -- not yet deployed.
+4. Plugin: the badge, the section, the hide/unhide action -- **done** in `kino-social` (branch `feat/creator-profile-ui`,
+   commit `e4ff33c`, local, not pushed, Kino Social 0.7.0). Skips the `go.url` fallback for a Kino without
+   `installPlugin`: nobody has this feature yet to be on an old Kino that lacks it, so there is nothing to fall back
+   from; add it later only if that stops being true. `npm test` and `check:built` pass; not tried on a real device.
