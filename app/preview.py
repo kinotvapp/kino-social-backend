@@ -66,9 +66,10 @@ def _from_device(url: str, sent) -> dict | None:
     return out
 
 
-def _from_tmdb(url: str, hint) -> dict | None:
-    """The title Kino's TMDB found for a TMDB or IMDb link (those sites refuse previews): checked, never trusted."""
-    if not isinstance(hint, dict) or not _host_in(_host(url), TITLE_HOSTS):
+def _title_card(hint) -> dict | None:
+    """A TMDB title the person's device sent (Kino's TMDB found it): checked, never trusted. None when it is not a movie
+    or series with a sane id, has no title, or looks 18+; a poster only from TMDB's own image host."""
+    if not isinstance(hint, dict):
         return None
     kind, tmdb_id = hint.get("kind"), hint.get("tmdbId")
     if kind not in ("movie", "series") or not isinstance(tmdb_id, int) or isinstance(tmdb_id, bool) or not 0 < tmdb_id < 10**9:
@@ -77,7 +78,8 @@ def _from_tmdb(url: str, hint) -> dict | None:
     if not title or profanity.looks_adult(title):
         return None
     year = hint.get("year")
-    out = {"title": profanity.mask(title), "desc": str(year) if isinstance(year, int) and 1870 < year < 2100 else None,
+    out = {"title": profanity.mask(title),
+           "desc": str(year) if isinstance(year, int) and not isinstance(year, bool) and 1870 < year < 2100 else None,
            "site": "TMDB", "tmdb": {"kind": kind, "id": tmdb_id}}
     poster = hint.get("poster")
     if isinstance(poster, str) and poster.startswith(TMDB_IMAGES) and _image(poster):
@@ -85,11 +87,27 @@ def _from_tmdb(url: str, hint) -> dict | None:
     return out
 
 
+def _from_tmdb(url: str, hint) -> dict | None:
+    """The title Kino's TMDB found for a TMDB or IMDb link (those sites refuse previews)."""
+    if not _host_in(_host(url), TITLE_HOSTS):
+        return None
+    return _title_card(hint)
+
+
+def tmdb_url(kind: str, tmdb_id: int) -> str:
+    return f"https://www.themoviedb.org/{'movie' if kind == 'movie' else 'tv'}/{tmdb_id}"
+
+
 def link_for(text: str, sent=None, hint=None) -> dict:
-    """{} without a link; {"url"} when there is no usable preview; else url, title, desc, site, image and tmdb as checked."""
+    """{} without a link or an attached title; {"url"} when there is no usable preview; else url, title, desc, site, image
+    and tmdb as checked. A title attached without a link in the text (the composer's «Adjuntar película o serie») makes
+    the card on its own, pointing at the title's TMDB page; with a link in the text, the link decides as before."""
     url = first_url(text)
     if url is None:
-        return {}
+        card = _title_card(hint)
+        if not card:
+            return {}
+        return {"url": tmdb_url(card["tmdb"]["kind"], card["tmdb"]["id"]), **{k: v for k, v in card.items() if v is not None}}
     if _host_in(_host(url), ADULT_DOMAINS):
         return {"url": url}
     found = _from_tmdb(url, hint) or _from_device(url, sent)

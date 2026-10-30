@@ -155,17 +155,21 @@ def update_me(body: dict, request: Request, user=Depends(current_user)):
 
 @router.post("/posts")
 def create_post(body: dict, request: Request, user=Depends(current_user)):
-    raw = _raw_text(body, "text", POST_MAX)
+    from . import preview
+
+    # The text may be empty only when the post carries a title the server accepted (the composer's attachment).
+    raw = _raw_text(body, "text", POST_MAX, allow_empty=True)
+    link = preview.link_for(profanity.mask(raw), body.get("link"), body.get("title"))
+    if not raw and not link.get("tmdb"):
+        raise HTTPException(400, "bad_text")
     moderation.check(user)
     text = profanity.mask(raw)
     _limit(request, user, "post")
-    from . import preview
 
     conn = request.app.state.db
     from . import communities, notify
 
     community = communities.postable(conn, body.get("communityId"), user["id"])
-    link = preview.link_for(text, body.get("link"), body.get("title"))
     tmdb = link.get("tmdb") or {}
     new_id = conn.execute(
         "INSERT INTO posts (user_id, text, link_url, preview_title, preview_desc, preview_site, preview_media, preview_kind,"
