@@ -14,7 +14,6 @@ router = APIRouter()
 
 POST_MAX, COMMENT_MAX, NAME_MAX, BIO_MAX = 500, 300, 40, 160
 LIMITS = {"post": 10, "comment": 30, "follow": 30, "like": 60, "handle": 10, "activity": 30, "community": 3}
-FEED_ACTIVITY_WINDOW_MS = 3 * 86_400_000
 TMDB_IMAGES = "https://image.tmdb.org/"
 MAX_RUN = 2  # never more than two feed items in a row from one person while others can be mixed in
 FEW_FOLLOWS = 3
@@ -60,6 +59,19 @@ def _author(row) -> dict:
     return {"id": row["user_id"], "name": row["author_name"], "handle": row["author_handle"]}
 
 
+def _season_episode(hint: dict, kind: str | None) -> tuple[int | None, int | None]:
+    # A series episode the person attached to a post (player-panel comments). Both numbers must be plain ints within the
+    # bounds _clean_activity uses; a movie, or any bad number, stores nothing rather than 0/0.
+    if kind != "series":
+        return None, None
+    season, episode = hint.get("season"), hint.get("episode")
+    if not isinstance(season, int) or isinstance(season, bool) or not isinstance(episode, int) or isinstance(episode, bool):
+        return None, None
+    if not 0 <= season < 1000 or not 0 < episode < 10000:
+        return None, None
+    return season, episode
+
+
 def _post_json(row) -> dict:
     # coinsAccount: the author's user_key, which IS their account id in the coins service (same HMAC secret), so the plugin
     # can name the recipient of a gift. It reveals nothing a stranger can turn back into the Telegram id.
@@ -76,6 +88,10 @@ def _post_json(row) -> dict:
             link["image"] = row["preview_media"]
         if row["preview_tmdb"]:
             link["tmdb"] = {"kind": row["preview_kind"], "id": row["preview_tmdb"]}
+            if row["preview_season"] is not None:
+                link["season"] = row["preview_season"]
+            if row["preview_episode"] is not None:
+                link["episode"] = row["preview_episode"]
         item["link"] = link
     if row["community_id"]:
         item["community"] = {"id": row["community_id"], "name": row["community_name"], "slug": row["community_slug"]}
@@ -184,11 +200,13 @@ def create_post(body: dict, request: Request, user=Depends(current_user)):
 
     community = communities.postable(conn, body.get("communityId"), user["id"])
     tmdb = link.get("tmdb") or {}
+    season, episode = _season_episode(body.get("title") or {}, tmdb.get("kind"))
     new_id = conn.execute(
         "INSERT INTO posts (user_id, text, link_url, preview_title, preview_desc, preview_site, preview_media, preview_kind,"
-        " preview_tmdb, community_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        " preview_tmdb, preview_season, preview_episode, community_id, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
         (user["id"], text, link.get("url"), link.get("title"), link.get("desc"), link.get("site"), link.get("image"),
-         tmdb.get("kind"), tmdb.get("id"), community, db.now_ms()),
+         tmdb.get("kind"), tmdb.get("id"), season, episode, community, db.now_ms()),
     ).fetchone()["id"]
     if community is None:
         told = notify.new_post(conn, user["id"], new_id)
@@ -339,22 +357,6 @@ def feed(request: Request, before: int | None = None, limit: int = 20, user=Depe
     return request.app.state.cache.respond(request, user["id"], ["feed"], lambda: _feed(request, user, before, limit))
 
 
-def _collapse_episodes(rows) -> list[dict]:
-    """One card per (person, series) among consecutive-in-time rows: the newest episode, with how many were watched."""
-    out, by_key = [], {}
-    for r in rows:  # newest first
-        key = (r["user_id"], r["kind"], r["tmdb_id"])
-        if r["kind"] == "series" and key in by_key:
-            by_key[key]["episodes"] += 1
-            continue
-        item = _activity_json(r)
-        if r["kind"] == "series":
-            item["episodes"] = 1
-            by_key[key] = item
-        out.append(item)
-    return out
-
-
 def mix(items: list[dict], max_run: int = MAX_RUN) -> list[dict]:
     """The same items, newest first, but never more than [max_run] in a row from one person while someone else's item
     can still come next. Nothing is dropped or moved to another page: only the order inside the page changes."""
@@ -380,15 +382,7 @@ def _feed(request: Request, user, before: int | None, limit: int) -> dict:
     conn = request.app.state.db
     posts = conn.execute(POSTS_SQL + " WHERE p.community_id IS NULL AND p.created_at < ? ORDER BY p.created_at DESC, p.id DESC LIMIT ?",
                          (user["id"], cutoff, limit)).fetchall()
-    activity = conn.execute(
-        ACTIVITY_SQL + " JOIN follows f ON f.followee_id = a.user_id AND f.follower_id = ?"
-        " WHERE a.created_at < ? AND NOT a.hidden AND u.share_activity AND a.watched_at >= a.created_at - ?"
-        " ORDER BY a.created_at DESC, a.id DESC LIMIT ?",
-        (user["id"], cutoff, FEED_ACTIVITY_WINDOW_MS, limit * 4),
-    ).fetchall()
-    merged = sorted([_post_json(r) for r in posts] + _collapse_episodes(activity),
-                    key=lambda i: (i["createdAt"], i["type"] == "post", i["id"]), reverse=True)
-    page = merged[:limit]
+    page = [_post_json(r) for r in posts]
     # The cursor is the oldest item of the page by time, so mixing the order inside it never skips one on the next page.
     next_cursor = min(i["createdAt"] for i in page) if len(page) == limit else None
     items = mix(page)
@@ -459,10 +453,10 @@ def add_activity(body: dict, request: Request, user=Depends(current_user)):
         added += conn.execute(
             "INSERT INTO activity (user_id, kind, tmdb_id, title, season, episode, poster, still, episode_title, watched_at, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-            (user["id"], *clean, now + i),  # +i: a batch keeps its order in the feed
+            (user["id"], *clean, now + i),  # +i: a batch keeps its order on the profile
         ).rowcount
     if added:
-        _bump(request, "feed", f"user:{user['id']}")
+        _bump(request, f"user:{user['id']}")
     return {"added": added}
 
 
@@ -480,7 +474,7 @@ def hide_activity(activity_id: int, body: dict, request: Request, user=Depends(c
     conn = request.app.state.db
     _owned(conn, "activity", activity_id, user)
     conn.execute("UPDATE activity SET hidden = ? WHERE id = ?", (body["hidden"], activity_id))
-    _bump(request, "feed", f"user:{user['id']}")
+    _bump(request, f"user:{user['id']}")
     return {"ok": True}
 
 
