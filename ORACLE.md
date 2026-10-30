@@ -142,3 +142,20 @@ En una máquina Oracle Linux 9 nueva:
    sslip.io y `reverse_proxy 127.0.0.1:8787`) y `kino-social-tunnel` (cloudflared con las credenciales del túnel
    `d3dfd239-…`).
 7. `firewall-cmd --permanent --add-service=http --add-service=https` y las reglas 80/443 en la Security List.
+
+## Kino coins (servicio aparte)
+
+Las Kino coins corren como un servicio propio junto a Social: carpeta `coins/`, base de datos propia (`kino_coins`), unidad
+`kino-coins-api` en `127.0.0.1:8788` y ruta `https://129-158-250-81.sslip.io/coins` en Caddy. Para mudarlo a otro servidor basta
+cambiar esa dirección y migrar su base.
+
+Puesta en marcha (una sola vez, **solo con el visto bueno del dueño**):
+
+1. `bash scripts/oracle.sh backup`.
+2. En el servidor: `sudo -u postgres createdb -O kino_social kino_coins`.
+3. Crear `/opt/kino-social/app-src/data/coins.env` (propietario `kino`, modo 600) con `KINO_COINS_DSN=postgresql://.../kino_coins`,
+   `KINO_COINS_ACCOUNT_SECRET=/opt/kino-social/app-src/data/secret.key` (**el mismo archivo que usa Social**, así los id de cuenta
+   coinciden) y, si hace falta, `KINO_COINS_PUBLIC_KEY`.
+4. Copiar `deploy/kino-coins-api.service` a `/etc/systemd/system/`, `sudo systemctl enable --now kino-coins-api`.
+5. Añadir `deploy/Caddyfile.coins.snippet` al sitio de `/etc/caddy/Caddyfile` y `sudo systemctl reload caddy`.
+6. Desde entonces `bash scripts/oracle.sh deploy-coins` sube solo `coins/`; `restart coins` y `logs coins` también funcionan.

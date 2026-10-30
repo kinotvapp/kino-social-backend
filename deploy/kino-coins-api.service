@@ -1,0 +1,16 @@
+[Unit]
+Description=Kino coins API
+After=network-online.target postgresql-18.service
+Wants=network-online.target
+
+[Service]
+User=kino
+WorkingDirectory=/opt/kino-social/app-src
+EnvironmentFile=/opt/kino-social/app-src/data/coins.env
+Environment=KINO_COINS_SERVE=1
+ExecStart=/opt/kino-social/venv/bin/uvicorn coins.main:app --host 127.0.0.1 --port 8788
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

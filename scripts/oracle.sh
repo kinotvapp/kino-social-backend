@@ -25,7 +25,7 @@ cd "$(dirname "$0")/.."
 
 unit() {
   case "${1:-api}" in
-    api) echo kino-social-api ;; caddy) echo caddy ;; tunnel) echo kino-social-tunnel ;;
+    api) echo kino-social-api ;; coins) echo kino-coins-api ;; caddy) echo caddy ;; tunnel) echo kino-social-tunnel ;;
     postgres) echo postgresql-18 ;; redis) echo redis ;; all) echo "kino-social-api caddy kino-social-tunnel" ;;
     *) echo "unknown service: $1" >&2; exit 2 ;;
   esac
@@ -58,6 +58,16 @@ sudo tar -xzf /tmp/ks-code.tgz -C $APP && rm -f /tmp/ks-code.tgz && sudo chown -
 sudo -u kino /opt/kino-social/venv/bin/pip install -q -r $APP/requirements.txt
 sudo systemctl restart kino-social-api; sleep 4
 curl -sf http://127.0.0.1:8787/health >/dev/null && echo 'deployed: API healthy' || { echo 'API NOT healthy: rolling back'; sudo rm -rf $APP/app; sudo cp -a /opt/kino-social/app.previous $APP/app; sudo systemctl restart kino-social-api; exit 1; }" ;;
+  deploy-coins)
+    # The coins service only (coins/ + requirements.txt): its own unit, its own data/coins.env, Social is not restarted.
+    tar --exclude=__pycache__ --exclude=.pytest_cache --exclude=tests -czf /tmp/kc-code.tgz coins requirements.txt
+    "${SCP[@]}" /tmp/kc-code.tgz "$HOST:/tmp/kc-code.tgz"; rm -f /tmp/kc-code.tgz
+    "${SSH[@]}" "set -e
+sudo cp -a $APP/coins /opt/kino-social/coins.previous 2>/dev/null || true
+sudo tar -xzf /tmp/kc-code.tgz -C $APP && rm -f /tmp/kc-code.tgz && sudo chown -R kino:kino $APP
+sudo -u kino /opt/kino-social/venv/bin/pip install -q -r $APP/requirements.txt
+sudo systemctl restart kino-coins-api; sleep 4
+curl -sf http://127.0.0.1:8788/health >/dev/null && echo 'deployed: coins healthy' || { echo 'coins NOT healthy: rolling back'; sudo rm -rf $APP/coins; sudo cp -a /opt/kino-social/coins.previous $APP/coins; sudo systemctl restart kino-coins-api; exit 1; }" ;;
   backup)
     mkdir -p backups
     out="backups/kino_social-$(date +%Y%m%d-%H%M%S).dump"

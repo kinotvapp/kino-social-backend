@@ -1,0 +1,4 @@
+# Inside the existing site block of /etc/caddy/Caddyfile (https://129-158-250-81.sslip.io), BEFORE the catch-all that proxies to Social:
+handle_path /coins/* {
+	reverse_proxy 127.0.0.1:8788
+}
