@@ -56,25 +56,26 @@ not attached to anyone's profile, same as today — this is purely additive, no 
 `welcomeNotice` is read. Kino itself never acts on it (no install-time check, no UI) — it exists only for the index job
 to read; a malformed value is just skipped by that job, never a reason to refuse the plugin.
 
-### 1b. The index job picks it up
+### 1b. The backend pulls the already-public index itself
 
-`kino-plugins`' existing daily "Build index" workflow already fetches every public repo's `kino-plugin.json` for the
-catalog. It reads `creator` from each one it already fetched (no extra GitHub calls) and calls one new endpoint once a
-day with the full list:
+No new endpoint, no shared secret, no cross-repo call at all. `kino-plugin-store`'s existing daily "Build index"
+workflow already writes `index.json` to its own repo, public, for Kino's built-in "Kino Plugins" store to read from
+`raw.githubusercontent.com` — and that same public file is all this needs. The backend fetches it on its own schedule
+(a periodic job, same shape as `CommunityBlocklistRepository`/`AutoInstallList` in `kino-app`, just on the backend side
+instead):
 
 ```
-POST /internal/creator-plugins  { "plugins": [
-  { "kinoUser": "lordmacu", "repo": "lordmacu/kino-plugin-foo", "name": "Foo", "description": "…", "stars": 12 }
-] }
+GET https://raw.githubusercontent.com/kinotvapp/kino-plugin-store/HEAD/index.json
 ```
 
-Authenticated by a shared secret (an env var the workflow and the backend both hold, like the GitHub token it already
-uses) — not a person's token, since this is the index job talking to the backend, not a user action. The handler
-replaces the whole table in one transaction (`DELETE` then insert the batch): the index's own list is always a full,
-current snapshot, so there is nothing to reconcile, and a repo that removed its `creator` field (or was deleted,
-renamed, or lost the `kino-plugin` topic) simply is not in the next day's list and so drops out on the next run. A
-row's `hidden` flag is preserved across a replace that still names the same `(kino_user, repo)` pair (an `UPSERT` that
-touches only the non-`hidden` columns), so hiding one does not reset itself the next day.
+and keeps only the entries that have a `creator` field (§1a; `entries.js`'s `entryOfManifest` already puts it there
+when the manifest has one, so there is nothing new to add to the index job). The handler replaces the whole table in
+one transaction (`DELETE` then insert the batch): the fetched list is always a full, current snapshot, so there is
+nothing to reconcile, and a repo that removed its `creator` field (or was deleted, renamed, or lost the `kino-plugin`
+topic) simply is not in the next fetch and so drops out on the next run. A row's `hidden` flag is preserved across a
+replace that still names the same `(kino_user, repo)` pair (an `UPSERT` that touches only the non-`hidden` columns),
+so hiding one does not reset itself the next day. A fetch that fails (network, GitHub down, bad JSON) just skips that
+run and keeps the table as it was — never clears it on a failure.
 
 ### 1c. Hiding one (`POST /me/plugins/<repo>/hide`, `.../unhide`)
 
@@ -165,10 +166,11 @@ What is left once the claim lives in the manifest, not the profile:
 
 1. `installPlugin` `go` in kino-app (§4) — ships in whatever version follows the welcome notice / auto-install list.
    **Already underway** in the `welcome-notice` worktree, same session that wrote this redesign.
-2. The manifest's `creator` field (§1a): `ManifestParser`, `kino-plugin.json`'s schema docs, the index job's reader
-   (§1b) and its daily `POST /internal/creator-plugins` call.
-3. Backend: `creator_plugins` (§1), the internal ingest endpoint (§1b), hide/unhide (§1c), `GET /users/<id>/plugins`
-   and `GET /me/plugins` (§3). None of the `feat/creator-profile` branch's current code (the old §1-3) carries over;
-   it gets replaced, not migrated.
+2. The manifest's `creator` field (§1a): `kino-plugin.json`'s schema docs and `kino-plugin-store`'s `entries.js`
+   (`entryOfManifest`) carrying it into `index.json` — **done** (`kino-plugin-store` commit, `kino-plugins` docs commit,
+   both local, not pushed, same session that wrote this redesign).
+3. Backend: `creator_plugins` (§1), the periodic `index.json` pull (§1b), hide/unhide (§1c), `GET /users/<id>/plugins`
+   and `GET /me/plugins` (§3). None of the `feat/creator-profile` branch's old code (§1-3 as first built: `creators.py`,
+   the old `db.py`/`social.py` `githubUsername` wiring) carries over; it gets replaced, not migrated.
 4. Plugin: the badge, the section, the hide/unhide action, the fallback `go.url` for a Kino that doesn't have
    `installPlugin` yet (`apiVersion`/manifest feature-detection the same way the rest of Kino Social already does it).
