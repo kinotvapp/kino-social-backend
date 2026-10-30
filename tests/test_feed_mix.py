@@ -1,10 +1,3 @@
-import time
-
-
-def now():
-    return int(time.time() * 1000)
-
-
 def _posts(client, by, n, start):
     for i in range(n):
         client.app_db.execute("INSERT INTO posts (user_id, text, created_at) VALUES (?, ?, ?)", (by, f"u{by}-{i}", start + i))
@@ -39,17 +32,6 @@ def test_paging_never_loses_an_item_after_mixing(client, login):
             break
         before = page["next"]
     assert sorted(seen) == sorted([f"u2-{i}" for i in range(30)] + [f"u3-{i}" for i in range(15)])
-
-
-def test_episodes_of_one_series_collapse_into_one_card(client, login):
-    a = login(1)
-    b = login(2)
-    client.post("/follow/2", headers=a)
-    items = [{"kind": "series", "tmdbId": 1399, "title": "Juego de tronos", "season": 1, "episode": e, "watchedAtMs": now()}
-             for e in (1, 2, 3, 4)]
-    client.post("/activity", json={"items": items}, headers=b)
-    acts = [i for i in client.get("/feed", headers=a).json()["items"] if i["type"] == "activity"]
-    assert len(acts) == 1 and acts[0]["episodes"] == 4 and acts[0]["episode"] == 4
 
 
 def test_suggestions_while_following_few(client, login):

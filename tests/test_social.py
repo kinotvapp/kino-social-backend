@@ -50,20 +50,20 @@ def _watch(client, headers, **item):
     return client.post("/activity", json={"items": [{**base, **item}]}, headers=headers)
 
 
-def test_activity_visibility(client, login):
+def test_activity_only_on_profile_never_in_feed(client, login):
     a = login(1, "ana")
     b = login(2, "beto")
     assert _watch(client, b).json()["added"] == 1
-    assert [i for i in client.get("/feed", headers=a).json()["items"] if i["type"] == "activity"] == []
-    assert client.post("/follow/2", headers=a).status_code == 200
-    items = client.get("/feed", headers=a).json()["items"]
-    assert items[0]["type"] == "activity" and items[0]["season"] == 4 and items[0]["episode"] == 3
-    assert items[0]["poster"].startswith("https://image.tmdb.org/")
-    act_id = client.get("/me/activity", headers=b).json()["items"][0]["id"]
-    assert client.patch(f"/me/activity/{act_id}", json={"hidden": True}, headers=b).status_code == 200
     assert client.get("/feed", headers=a).json()["items"] == []
+    assert client.post("/follow/2", headers=a).status_code == 200
+    assert client.get("/feed", headers=a).json()["items"] == []  # following b and b watching never feeds an activity card
+    act = client.get("/me/activity", headers=b).json()["items"][0]
+    assert act["season"] == 4 and act["episode"] == 3
+    assert act["poster"].startswith("https://image.tmdb.org/")
+    assert [i["id"] for i in client.get("/users/2", headers=a).json()["activity"]] == [act["id"]]
+    assert client.patch(f"/me/activity/{act['id']}", json={"hidden": True}, headers=b).status_code == 200
     assert client.get("/users/2", headers=a).json()["activity"] == []
-    client.patch(f"/me/activity/{act_id}", json={"hidden": False}, headers=b)
+    client.patch(f"/me/activity/{act['id']}", json={"hidden": False}, headers=b)
     client.patch("/me", json={"shareActivity": False}, headers=b)
     assert client.get("/feed", headers=a).json()["items"] == []
     assert client.get("/users/2", headers=a).json()["activity"] == []
@@ -152,10 +152,10 @@ def test_an_episode_carries_its_still_and_name(client, login):
     b = login(2, "beto")
     client.post("/follow/2", headers=a)
     _watch(client, b, still="https://image.tmdb.org/t/p/w300/still.jpg", episodeTitle="Capítulo 7: La masacre")
-    item = client.get("/feed", headers=a).json()["items"][0]
+    item = client.get("/users/2", headers=a).json()["activity"][0]
     assert item["still"] == "https://image.tmdb.org/t/p/w300/still.jpg" and item["episodeTitle"] == "Capítulo 7: La masacre"
     _watch(client, b, tmdbId=5, still="https://evil.example/x.jpg", episodeTitle="x" * 300)
-    other = [i for i in client.get("/feed", headers=a).json()["items"] if i["tmdbId"] == 5][0]
+    other = [i for i in client.get("/users/2", headers=a).json()["activity"] if i["tmdbId"] == 5][0]
     assert other.get("still") is None and other.get("episodeTitle") is None
 
 
